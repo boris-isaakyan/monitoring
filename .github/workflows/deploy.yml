@@ -8,7 +8,7 @@ on:
 
 # Переменные окружения (будут доступны во всех шагах)
 env:
-  DEPLOY_PATH: /home/${{ secrets.SSH_USER }}/web-app-tg
+  DEPLOY_PATH: /home/${{ secrets.SSH_USER }}/web-app
 
 jobs:
   deploy:
@@ -35,13 +35,13 @@ jobs:
             git pull origin master
 
             # Пересобираем и перезапускаем контейнеры
-            docker-compose down
-            docker-compose pull  # Обновляем образы (если есть новые версии)
-            docker-compose up -d --build
+            docker compose down
+            docker compose pull  # Обновляем образы (если есть новые версии)
+            docker compose up -d --build
 
             # Чистим старые образы (экономия места)
             docker system prune -f
 
             # Показываем статус
             echo "✅ Deployment completed!"
-            docker-compose ps
+            docker compose ps
