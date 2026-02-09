@@ -1,0 +1,47 @@
+name: Deploy to Production
+
+# Когда триггерится этот workflow
+on:
+  push:
+    branches:
+      - master  # Срабатывает при пуше в ветку master
+
+# Переменные окружения (будут доступны во всех шагах)
+env:
+  DEPLOY_PATH: /home/${{ secrets.SSH_USER }}/web-app-tg
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest  # GitHub предоставляет временную Ubuntu VM
+
+    steps:
+      # Шаг 1: Скачать код из репозитория
+      - name: Checkout code
+        uses: actions/checkout@v3
+
+      # Шаг 2: Подключиться по SSH и задеплоить
+      - name: Deploy via SSH
+        uses: appleboy/ssh-action@master
+        with:
+          host: ${{ secrets.SSH_HOST }}        # IP сервера
+          username: ${{ secrets.SSH_USER }}    # Пользователь
+          key: ${{ secrets.SSH_PRIVATE_KEY }}  # Приватный SSH-ключ
+          port: 22
+          script: |
+            # Переходим в папку проекта
+            cd ${{ env.DEPLOY_PATH }}
+
+            # Подтягиваем последние изменения из Git
+            git pull origin master
+
+            # Пересобираем и перезапускаем контейнеры
+            docker-compose down
+            docker-compose pull  # Обновляем образы (если есть новые версии)
+            docker-compose up -d --build
+
+            # Чистим старые образы (экономия места)
+            docker system prune -f
+
+            # Показываем статус
+            echo "✅ Deployment completed!"
+            docker-compose ps
