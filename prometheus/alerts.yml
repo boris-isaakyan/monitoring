@@ -1,0 +1,89 @@
+groups:
+  # Группа алертов для хоста (CPU, RAM, Disk)
+  - name: host_alerts
+    interval: 30s  # Проверять каждые 30 секунд
+    rules:
+      # Алерт: Высокая загрузка CPU
+      - alert: HighCPUUsage
+        expr: 100 - (avg by (instance) (rate(node_cpu_seconds_total{mode="idle"}[5m])) * 100) > 80
+        for: 2m  # Только если условие выполняется 2 минуты подряд
+        labels:
+          severity: warning
+          component: host
+        annotations:
+          summary: "High CPU usage detected on {{ $labels.instance }}"
+          description: "CPU usage is above 80% (current value: {{ $value }}%)"
+
+      # Алерт: Высокое использование RAM
+      - alert: HighMemoryUsage
+        expr: (1 - (node_memory_MemAvailable_bytes / node_memory_MemTotal_bytes)) * 100 > 90
+        for: 2m
+        labels:
+          severity: warning
+          component: host
+        annotations:
+          summary: "High memory usage detected on {{ $labels.instance }}"
+          description: "Memory usage is above 90% (current value: {{ $value }}%)"
+
+      # Алерт: Заканчивается место на диске
+      - alert: DiskSpaceLow
+        expr: (1 - (node_filesystem_avail_bytes{fstype!~"tmpfs|fuse.lxcfs"} / node_filesystem_size_bytes{fstype!~"tmpfs|fuse.lxcfs"})) * 100 > 85
+        for: 5m
+        labels:
+          severity: critical
+          component: host
+        annotations:
+          summary: "Disk space running low on {{ $labels.instance }}"
+          description: "Disk {{ $labels.mountpoint }} is {{ $value }}% full"
+
+  # Группа алертов для Docker-контейнеров
+  - name: container_alerts
+    interval: 30s
+    rules:
+      # Алерт: Контейнер потребляет слишком много CPU
+      - alert: ContainerHighCPU
+        expr: sum(rate(container_cpu_usage_seconds_total{name!=""}[5m])) by (name) * 100 > 80
+        for: 2m
+        labels:
+          severity: warning
+          component: container
+        annotations:
+          summary: "Container {{ $labels.name }} using high CPU"
+          description: "Container CPU usage is {{ $value }}%"
+
+      # Алерт: Контейнер потребляет слишком много памяти
+      - alert: ContainerHighMemory
+        expr: (container_memory_usage_bytes{name!=""} / container_spec_memory_limit_bytes{name!=""}) * 100 > 90
+        for: 2m
+        labels:
+          severity: warning
+          component: container
+        annotations:
+          summary: "Container {{ $labels.name }} using high memory"
+          description: "Container memory usage is {{ $value }}%"
+
+      # Алерт: Контейнер перезапускается
+      - alert: ContainerRestarting
+        expr: rate(container_last_seen{name!=""}[5m]) > 0
+        for: 1m
+        labels:
+          severity: critical
+          component: container
+        annotations:
+          summary: "Container {{ $labels.name }} is restarting"
+          description: "Container has been restarting frequently"
+
+  # Группа алертов для сервисов (Prometheus targets)
+  - name: service_alerts
+    interval: 30s
+    rules:
+      # Алерт: Exporter недоступен
+      - alert: ServiceDown
+        expr: up == 0
+        for: 1m
+        labels:
+          severity: critical
+          component: service
+        annotations:
+          summary: "Service {{ $labels.job }} is down"
+          description: "{{ $labels.job }} on {{ $labels.instance }} has been down for more than 1 minute"

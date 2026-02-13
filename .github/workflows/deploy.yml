@@ -43,5 +43,5 @@ jobs:
             docker system prune -f
 
             # Показываем статус
-            echo "✅ Deployment completed!"
+            echo " Deployment completed!"
             docker compose ps
