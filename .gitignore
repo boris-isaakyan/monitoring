@@ -1,5 +1,8 @@
 # Docker volumes и временные файлы
 postgres-data/
+data/
+
+# Логи
 *.log
 
 # IDE и редакторы
@@ -11,3 +14,12 @@ postgres-data/
 # Системные файлы
 .DS_Store
 Thumbs.db
+
+# Переменные окружения
+.env
+.env.local
+.env.production
+
+# Временные файлы
+*.tmp
+*.bak
