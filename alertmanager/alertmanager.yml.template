@@ -1,0 +1,55 @@
+global:
+  # Настройки по умолчанию для всех маршрутов
+  resolve_timeout: 5m
+
+# Маршрутизация алертов
+route:
+  # Группировать алерты по этим меткам
+  group_by: ['alertname', 'severity', 'component']
+  
+  # Ждать 30 секунд перед отправкой первого уведомления
+  # (чтобы сгруппировать несколько алертов в одно сообщение)
+  group_wait: 30s
+  
+  # Если пришли новые алерты в ту же группу, подождать 5 минут
+  group_interval: 5m
+  
+  # Повторно отправлять уведомление, если алерт не решён
+  repeat_interval: 12h
+  
+  # Получатель по умолчанию
+  receiver: 'default-receiver'
+  
+  # Специальные маршруты для критичных алертов
+  routes:
+    - match:
+        severity: critical
+      receiver: 'critical-receiver'
+      repeat_interval: 1h
+
+# Получатели (куда отправлять уведомления)
+receivers:
+     - name: 'telegram-receiver'
+       telegram_configs:
+      - bot_token: '${TELEGRAM_BOT_TOKEN}'
+        chat_id: ${TELEGRAM_CHAT_ID}
+           message: |
+             🔥 *Alert:* {{ .GroupLabels.alertname }}
+             *Severity:* {{ .CommonLabels.severity }}
+             {{ range .Alerts }}
+             *Description:* {{ .Annotations.description }}
+             {{ end }}
+           parse_mode: 'Markdown'
+   
+   route:
+     receiver: 'telegram-receiver'  # Теперь всё идёт в Telegram
+
+# Подавление дублирующихся алертов
+inhibit_rules:
+  # Если сервис упал (ServiceDown), не отправлять алерты о его метриках
+  - source_match:
+      severity: 'critical'
+      alertname: 'ServiceDown'
+    target_match:
+      component: 'service'
+    equal: ['instance']
