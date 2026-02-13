@@ -1,0 +1,30 @@
+global:
+  scrape_interval: 15s  # Опрашивать exporters каждые 15 секунд
+  evaluation_interval: 15s  # Проверять правила алертов каждые 15 секунд
+
+# Где находится Alertmanager
+alerting:
+  alertmanagers:
+    - static_configs:
+        - targets: ['alertmanager:9093']
+
+# Файлы с правилами алертов
+rule_files:
+  - '/etc/prometheus/alerts.yml'
+
+# Откуда Prometheus берёт метрики
+scrape_configs:
+  # Метрики Prometheus
+  - job_name: 'prometheus'
+    static_configs:
+      - targets: ['localhost:9090']
+
+  # Метрики хоста (CPU, RAM, disk)
+  - job_name: 'node-exporter'
+    static_configs:
+      - targets: ['node-exporter:9100']
+
+  # Метрики Docker-контейнеров
+  - job_name: 'cadvisor'
+    static_configs:
+      - targets: ['cadvisor:8080']
