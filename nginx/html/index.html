@@ -1,181 +1,171 @@
 <!DOCTYPE html>
-<!-- Это объявление типа документа. Говорит браузеру, что это HTML5 -->
-
 <html lang="en">
-<!-- Открывающий тег HTML. lang="en" указывает язык страницы (английский) -->
-
 <head>
-    <!-- HEAD - секция с метаинформацией, которую пользователь не видит напрямую -->
-    
     <meta charset="UTF-8">
-    <!-- Кодировка символов UTF-8 (поддержка кириллицы, эмодзи и т.д.) -->
-    
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <!-- Делает сайт адаптивным для мобильных устройств -->
-    
     <title>DevOps Portfolio Project</title>
-    <!-- Заголовок вкладки в браузере -->
-    
     <style>
-        /* CSS - стили для внешнего вида страницы */
-        /* Всё между /* и */ - это комментарии в CSS */
-        
-        * { 
-            /* Звёздочка * = все элементы на странице */
-            margin: 0; 
-            padding: 0; 
-            box-sizing: border-box; 
-            /* Сбрасываем отступы по умолчанию для всех элементов */
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
         }
-        
+
         body {
-            /* body - это всё содержимое страницы */
             font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-            /* Шрифт текста (если первого нет, используется следующий) */
-            
             background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%);
-            /* Градиентный фон (от фиолетового к пурпурному) */
-            
             color: white;
-            /* Цвет текста - белый */
-            
             min-height: 100vh;
-            /* Минимальная высота = 100% высоты экрана (viewport height) */
-            
             display: flex;
             justify-content: center;
             align-items: center;
-            /* Эти три строки центрируют содержимое по вертикали и горизонтали */
-            
             padding: 20px;
-            /* Отступ от краёв экрана */
         }
-        
+
         .container {
-            /* Класс .container - главный блок с контентом */
-            max-width: 800px;
-            /* Максимальная ширина блока - 800 пикселей */
-            
+            max-width: 860px;
+            width: 100%;
             background: rgba(255, 255, 255, 0.1);
-            /* Полупрозрачный белый фон (rgba: red, green, blue, alpha/прозрачность) */
-            
             backdrop-filter: blur(10px);
-            /* Эффект размытия фона (стеклянный эффект) */
-            
             padding: 40px;
-            /* Внутренние отступы */
-            
             border-radius: 20px;
-            /* Скругление углов */
-            
             box-shadow: 0 8px 32px 0 rgba(31, 38, 135, 0.37);
-            /* Тень вокруг блока для объёма */
         }
-        
-        h1 { 
-            /* h1 - заголовок первого уровня (самый крупный) */
-            font-size: 2.5em; 
-            /* Размер шрифта (em - относительная единица) */
-            margin-bottom: 20px; 
-            /* Отступ снизу */
+
+        h1 {
+            font-size: 2.5em;
+            margin-bottom: 10px;
         }
-        
-        .status { 
-            /* Блок со статусом приложения */
+
+        .subtitle {
+            opacity: 0.85;
+            margin-bottom: 24px;
+            font-size: 1.05em;
+        }
+
+        /* Статус */
+        .status {
             background: rgba(76, 175, 80, 0.3);
-            /* Полупрозрачный зелёный фон */
-            
-            padding: 15px;
+            padding: 15px 20px;
             border-radius: 10px;
-            margin: 20px 0;
-            /* margin: 20px 0 = отступ сверху и снизу 20px, слева и справа 0 */
+            margin-bottom: 30px;
         }
-        
-        .tech-stack {
-            /* Контейнер для технологий */
+
+        .status h2 { font-size: 1.2em; margin-bottom: 4px; }
+        .status p  { opacity: 0.85; font-size: 0.95em; }
+
+        /* Секции */
+        .section-title {
+            font-size: 1em;
+            text-transform: uppercase;
+            letter-spacing: 0.08em;
+            opacity: 0.7;
+            margin-bottom: 12px;
+        }
+
+        /* Карточки мониторинга */
+        .monitoring-grid {
             display: grid;
-            /* Grid - система сеток для расположения элементов */
-            
-            grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
-            /* Автоматическое распределение колонок:
-               - каждая колонка минимум 150px
-               - auto-fit = автоматически подстраивается под ширину экрана
-               - 1fr = одна фракция доступного пространства */
-            
-            gap: 15px;
-            /* Расстояние между элементами сетки */
-            
-            margin-top: 30px;
-            /* Отступ сверху */
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 12px;
+            margin-bottom: 30px;
         }
-        
+
+        .monitor-card {
+            background: rgba(255, 255, 255, 0.15);
+            border-radius: 12px;
+            padding: 18px;
+            text-decoration: none;
+            color: white;
+            transition: background 0.2s, transform 0.2s;
+            display: flex;
+            flex-direction: column;
+            gap: 6px;
+        }
+
+        .monitor-card:hover {
+            background: rgba(255, 255, 255, 0.25);
+            transform: translateY(-2px);
+        }
+
+        .monitor-card .icon { font-size: 1.6em; }
+        .monitor-card .name { font-weight: 600; font-size: 1em; }
+        .monitor-card .desc { font-size: 0.82em; opacity: 0.75; }
+        .monitor-card .port { font-size: 0.78em; opacity: 0.55; margin-top: 2px; }
+
+        /* Стек технологий */
+        .tech-stack {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(130px, 1fr));
+            gap: 10px;
+        }
+
         .tech-item {
-            /* Отдельная карточка технологии */
-            background: rgba(255, 255, 255, 0.2);
-            /* Полупрозрачный белый фон */
-            
-            padding: 15px;
+            background: rgba(255, 255, 255, 0.15);
+            padding: 12px;
             border-radius: 10px;
             text-align: center;
-            /* Текст по центру */
+            font-size: 0.9em;
         }
-        
-        a {
-            /* Стили для ссылок */
-            color: #fff;
-            /* Белый цвет */
-            
-            text-decoration: none;
-            /* Убираем стандартное подчёркивание */
-            
-            border-bottom: 2px solid #fff;
-            /* Добавляем своё подчёркивание снизу */
+
+        /* Разделитель */
+        .divider {
+            border: none;
+            border-top: 1px solid rgba(255,255,255,0.2);
+            margin: 28px 0;
         }
     </style>
 </head>
-
 <body>
-    <!-- BODY - видимая часть страницы -->
-    
     <div class="container">
-        <!-- div - универсальный блок-контейнер. class="container" связывает с CSS выше -->
-        
+
         <h1>🚀 DevOps Portfolio Project</h1>
-        <!-- h1 - главный заголовок страницы -->
-        
-        <p>Multi-container application with automated CI/CD pipeline</p>
-        <!-- p - параграф (обычный текст) -->
-        
+        <p class="subtitle">Multi-container application with automated CI/CD pipeline and full observability stack</p>
+
         <div class="status">
-            <!-- Блок статуса (зелёный) -->
             <h2>✅ Application Status: Running</h2>
-            <!-- h2 - заголовок второго уровня (чуть меньше h1) -->
-            
             <p>All services are up and operational</p>
         </div>
 
-        <h3>Technology Stack:</h3>
-        <!-- h3 - заголовок третьего уровня -->
-        
+        <!-- Мониторинг -->
+        <p class="section-title">Observability Stack</p>
+        <div class="monitoring-grid">
+            <a class="monitor-card" href="http://localhost:3000" target="_blank">
+                <span class="icon">📊</span>
+                <span class="name">Grafana</span>
+                <span class="desc">Dashboards & visualization</span>
+                <span class="port">:3000</span>
+            </a>
+            <a class="monitor-card" href="http://localhost:9090" target="_blank">
+                <span class="icon">🔥</span>
+                <span class="name">Prometheus</span>
+                <span class="desc">Metrics & alerting rules</span>
+                <span class="port">:9090</span>
+            </a>
+            <a class="monitor-card" href="http://localhost:9093" target="_blank">
+                <span class="icon">🔔</span>
+                <span class="name">Alertmanager</span>
+                <span class="desc">Alert routing & Telegram</span>
+                <span class="port">:9093</span>
+            </a>
+        </div>
+
+        <hr class="divider">
+
+        <!-- Стек -->
+        <p class="section-title">Technology Stack</p>
         <div class="tech-stack">
-            <!-- Контейнер-сетка для карточек технологий -->
-            
             <div class="tech-item">🐋 Docker</div>
             <div class="tech-item">🔧 Docker Compose</div>
             <div class="tech-item">🌐 Nginx</div>
             <div class="tech-item">🗄️ PostgreSQL</div>
+            <div class="tech-item">📈 Prometheus</div>
+            <div class="tech-item">📊 Grafana</div>
+            <div class="tech-item">🔔 Alertmanager</div>
             <div class="tech-item">⚙️ GitHub Actions</div>
             <div class="tech-item">🐧 Ubuntu Server</div>
-            <!-- Каждый div с классом tech-item = одна карточка -->
         </div>
 
-        <p style="margin-top: 30px;">
-            <!-- style="..." - инлайн-стили (стили прямо в теге) -->
-            <!-- margin-top: 30px = отступ сверху -->
-            
-            📦 Database Admin: <a href="/adminer" target="_blank">Access Adminer</a>
-            <!-- a - ссылка. href="/adminer" = путь, target="_blank" = открыть в новой вкладке -->
-        </p>
     </div>
 </body>
 </html>
