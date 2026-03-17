@@ -1,0 +1,111 @@
+# alertmanager.yml - Главный конфигурационный файл для Alertmanager.
+# Определяет маршруты, приемники и правила подавления для алертов
+
+# АРХИТЕКТУРА ПОТОКА АЛЕРТОВ:
+#   Prometheus (expr сработал) → Alertmanager (route) → receiver (Telegram)
+#
+# КЛЮЧЕВЫЕ ПОНЯТИЯ:
+#   firing    — алерт активен прямо сейчас
+#   pending   — алерт ждёт истечения for: в prometheus rule
+#   resolved  — алерт перестал срабатывать (expr стал ложным)
+#   inhibited — алерт подавлен другим алертом (inhibit_rules)
+#   silenced  — алерт заглушён вручную (через API/UI Alertmanager)
+
+global:
+  # Через сколько времени алерт считается "решённым" если перестал приходить
+  resolve_timeout: 5m
+
+# Маршрутизация алертов
+route:
+  # Группировать алерты по этим меткам в одно сообщение
+  # 'name' добавлен чтобы рестарты разных контейнеров не сливались в одно уведомление
+  group_by: ['alertname', 'severity', 'component', 'name']
+  
+  # Ждать 5 секунд перед отправкой — даём время собраться связанным алертам
+  group_wait: 5s
+
+  # Если в уже отправленную группу пришли новые алерты — ждём 10s перед повторной отправкой
+  group_interval: 10s
+
+  # Напоминать о не решённом алерте каждые 4 часа
+  repeat_interval: 4h
+  
+  # Получатель по умолчанию
+  receiver: telegram
+
+  # Дочерние маршруты — переопределяют параметры для конкретных алертов
+  routes:
+    # Алерты мониторинга (Alertmanager упал) — максимальный приоритет
+    - match:                           # match: точное совпадение одной метки
+        component: monitoring
+      receiver: telegram
+      group_wait: 0s                   # Отправляем мгновенно
+      repeat_interval: 30m             # Напоминать каждые 30 минут — мониторинг должен быть восстановлен
+
+
+    # Критические алерты отправляем быстрее и напоминаем чаще
+    - match:                           # match: точное совпадение одной метки
+        severity: critical
+      receiver: telegram
+      group_wait: 1s                   # 1s — critical требует немедленного уведомления
+      repeat_interval: 1h              # Напоминать каждый час пока проблема не решена.
+
+# RECEIVERS: получатели уведомлений
+receivers:
+  - name: telegram
+    telegram_configs:
+      - bot_token_file: '/run/secrets/telegram_token'   # Токен из секрета (безопасно)
+        chat_id_file: '/run/secrets/telegram_chat_id'   # chat_id из секрета
+
+        # Шаблон сообщения
+        # .Status: "firing" (активен) или "resolved" (решён)
+        # .GroupLabels: метки по которым сгруппированы алерты
+        # .CommonLabels: метки общие для всех алертов в группе
+        # .Alerts: список всех алертов в группе
+        message: |
+          {{ if eq .Status "firing" }}🔥 АЛЕРТ{{ else }}✅ РЕШЕНО{{ end }}
+
+          Алерт: {{ .GroupLabels.alertname }}
+          Срочность: {{ .CommonLabels.severity }}
+          Компонент: {{ .CommonLabels.component }}
+
+          {{ range .Alerts }}
+          {{ if .Labels.name }}📦 Контейнер: {{ .Labels.name }}{{ end }}
+          {{ if .Labels.instance }}🖥 Хост: {{ .Labels.instance }}{{ end }}
+          📝 {{ .Annotations.description }}
+          ⏰ Начало: {{ .StartsAt.Local.Format "02.01.2006 15:04:05" }}
+          {{ end }}     
+          
+        # parse_mode="" — отключаем Markdown чтобы спецсимволы не ломали сообщения
+        parse_mode: ""
+
+        # Отправлять уведомление когда алерт решился
+        send_resolved: true
+
+# Подавление дублирующихся алертов (inhibit_rules)
+# Если сработал критический алерт — подавляем связанные warning, чтобы не создавать шум
+# Логика: если source_matchers активен → подавить target_matchers.
+# equal: [] означает подавление всех target независимо от меток.
+
+inhibit_rules:
+
+  # Если cAdvisor упал — не спамить алертами о конкретных контейнерах
+  - source_matchers:
+      - alertname = "CAdvisorDown"
+    target_matchers:
+      - component = "container"
+    equal: []
+
+  # Если Node Exporter упал — не спамить алертами о CPU/RAM/Disk хоста
+  - source_matchers:
+      - alertname = "NodeExporterDown"
+    target_matchers:
+      - component = "host"
+    equal: []
+
+  # Critical подавляет Warning для того же компонента и контейнера
+  - source_matchers:
+      - severity = "critical"
+    target_matchers:
+      - severity = "warning"
+    equal: ['alertname', 'component', 'name']
