@@ -1,47 +1,161 @@
+# .github/workflows/deploy.yml
+#
+# CI/CD: автодеплой на production сервер при пуше в master
+#
+# НЕОБХОДИМЫЕ GitHub Secrets (Settings → Secrets → Actions):
+#   SSH_HOST               — IP сервера
+#   SSH_USER               — пользователь для SSH (не root!)
+#   SSH_PRIVATE_KEY        — приватный SSH-ключ
+#   POSTGRES_USER          — имя пользователя PostgreSQL
+#   POSTGRES_DB            — имя базы данных
+#   POSTGRES_PASSWORD      — пароль PostgreSQL
+#   GRAFANA_ADMIN_USER     — логин администратора Grafana
+#   GRAFANA_ADMIN_PASSWORD — пароль администратора Grafana
+#   TELEGRAM_BOT_TOKEN     — токен Telegram-бота
+#   TELEGRAM_CHAT_ID       — ID чата для алертов
+
 name: Deploy to Production
 
-# Когда триггерится этот workflow
 on:
   push:
     branches:
-      - master  # Срабатывает при пуше в ветку master
+      - master              # Деплой только при пуше в master
 
 # Переменные окружения (будут доступны во всех шагах)
 env:
-  DEPLOY_PATH: /home/${{ secrets.SSH_USER }}/web-app
+  DEPLOY_PATH: /home/${{ secrets.SSH_USER }}/web-app      
 
 jobs:
   deploy:
-    runs-on: ubuntu-latest  # GitHub предоставляет временную Ubuntu VM
+    runs-on: ubuntu-latest  # GitHub предоставляет чистую Ubuntu-машину для каждого запуска
 
     steps:
-      # Шаг 1: Скачать код из репозитория
-      - name: Checkout code
-        uses: actions/checkout@v3
 
-      # Шаг 2: Подключиться по SSH и задеплоить
+      # Шаг 1: Скачиваем код на runner
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      # Шаг 2: Проверяем синтаксис docker-compose.yml
+      - name: Validate docker-compose config
+        run: |
+          # Создаём временный .env — compose требует переменные для валидации
+          cat > .env << 'EOF'
+          COMPOSE_PROJECT_NAME=webapp
+          NGINX_HTTP_PORT=80
+          POSTGRES_USER=test
+          POSTGRES_DB=test
+          GRAFANA_ADMIN_USER=admin
+          GRAFANA_USERS_ALLOW_SIGN_UP=false
+          GRAFANA_PORT=3000
+          PROMETHEUS_PORT=9090
+          NODE_EXPORTER_PORT=9100
+          CADVISOR_PORT=8081
+          ALERTMANAGER_PORT=9093
+          ADMINER_PORT=8080
+          NETWORK_SUBNET=172.20.0.0/24
+          EOF
+
+          # Создаём заглушки секретов — только для проверки синтаксиса
+          mkdir -p secrets
+          for f in postgres_password grafana_admin_password telegram_token telegram_chat_id; do
+            echo "dummy" > secrets/$f
+          done
+
+          # --quiet: выводит только ошибки, без дампа всего конфига
+          docker compose config --quiet
+          echo "docker-compose.yml синтаксически корректен"
+
+      # Шаг 3: Деплой на сервер через SSH
       - name: Deploy via SSH
-        uses: appleboy/ssh-action@master
+        uses: appleboy/ssh-action@v1.0.3  # Пинируем версию — не берём @master
         with:
-          host: ${{ secrets.SSH_HOST }}        # IP сервера
-          username: ${{ secrets.SSH_USER }}    # Пользователь
-          key: ${{ secrets.SSH_PRIVATE_KEY }}  # Приватный SSH-ключ
-          port: 22
+          host: ${{ secrets.SSH_HOST }}
+          username: ${{ secrets.SSH_USER }}
+          key: ${{ secrets.SSH_PRIVATE_KEY }}
+          # Передаём секреты как переменные окружения SSH-сессии, так значения не попадают в логи GitHub Actions
+          envs: DEPLOY_POSTGRES_USER,DEPLOY_POSTGRES_DB,DEPLOY_POSTGRES_PASSWORD,DEPLOY_GRAFANA_USER,DEPLOY_GRAFANA_PASSWORD,DEPLOY_TELEGRAM_TOKEN,DEPLOY_TELEGRAM_CHAT_ID
           script: |
+            # оставнока скрипта при ошибке, , остановка, если переменная не определена, ошибки в пайпах не игнорируются
+            set -euo pipefail
+            echo "Деплой начат: $(date '+%Y-%m-%d %H:%M:%S')"
+
             # Переходим в папку проекта
             cd ${{ env.DEPLOY_PATH }}
 
-            # Подтягиваем последние изменения из Git
+            # Получаем свежий код из репозитория
             git pull origin master
+            echo "Код обновлён до: $(git rev-parse --short HEAD)"
 
-            # Пересобираем и перезапускаем контейнеры
-            docker compose down
-            docker compose pull  # Обновляем образы (если есть новые версии)
-            docker compose up -d --build
+            # Создаём папку для секретов если её нет
+            mkdir -p secrets
 
-            # Чистим старые образы (экономия места)
-            docker system prune -f
+            # Записываем секреты из переменных окружения в файлы
+            # printf '%s' — без символа новой строки в конце файла
+            printf '%s' "$DEPLOY_POSTGRES_PASSWORD" > secrets/postgres_password
+            printf '%s' "$DEPLOY_GRAFANA_PASSWORD"  > secrets/grafana_admin_password
+            printf '%s' "$DEPLOY_TELEGRAM_TOKEN"    > secrets/telegram_token
+            printf '%s' "$DEPLOY_TELEGRAM_CHAT_ID"  > secrets/telegram_chat_id
 
-            # Показываем статус
-            echo " Deployment completed!"
+            # Права 600 — только владелец может читать файлы с паролями
+            chmod 600 secrets/*
+            echo "Секреты обновлены"
+
+            # Создаём .env файл
+            # > перезаписывает файл целиком при каждом деплое, гарантирует что на сервере всегда актуальная конфигурация
+            cat > .env << EOF
+            COMPOSE_PROJECT_NAME=webapp
+            NGINX_HTTP_PORT=80
+            POSTGRES_USER=${DEPLOY_POSTGRES_USER}
+            POSTGRES_DB=${DEPLOY_POSTGRES_DB}
+            GRAFANA_ADMIN_USER=${DEPLOY_GRAFANA_USER}
+            GRAFANA_USERS_ALLOW_SIGN_UP=false
+            GRAFANA_PORT=3000
+            PROMETHEUS_PORT=9090
+            NODE_EXPORTER_PORT=9100
+            CADVISOR_PORT=8081
+            ALERTMANAGER_PORT=9093
+            ADMINER_PORT=8080
+            NETWORK_SUBNET=172.20.0.0/24
+            EOF
+            echo ".env обновлён"
+
+            # Скачиваем обновлённые образы
+            docker compose pull
+            echo "Образы обновлены"
+
+            # Запускаем контейнеры
+            # --remove-orphans: удаляет контейнеры сервисов, которые были удалены из docker-compose.yml
+            docker compose up -d --remove-orphans
+            echo "Контейнеры запущены"
+
+            # Ждём готовности сервисов, 60 секунд — перекрывает самый долгий start_period (postgres = 30s)
+            echo "Жду готовности сервисов (60 сек)..."
+            sleep 60
+
+            # Проверяем что все сервисы healthy
+            if docker compose ps | grep -q "unhealthy"; then
+              echo "Есть проблемные контейнеры:"
+              docker compose ps
+              exit 1    # Завершаем с ошибкой — GitHub Actions пометит деплой как failed
+            fi
+
+            echo "Все сервисы работают"
             docker compose ps
+
+            # Очищаем dangling образы, которые остались после docker compose pull
+            docker image prune -f
+            echo "Устаревшие образы удалены"
+
+            echo ""
+            echo "Деплой завершён: $(date '+%Y-%m-%d %H:%M:%S')"
+
+        # Маппинг: GitHub Secrets → переменные окружения SSH-сессии
+        # Префикс DEPLOY_ чтобы не конфликтовать с системными переменными сервера
+        env:
+          DEPLOY_POSTGRES_USER:     ${{ secrets.POSTGRES_USER }}
+          DEPLOY_POSTGRES_DB:       ${{ secrets.POSTGRES_DB }}
+          DEPLOY_POSTGRES_PASSWORD: ${{ secrets.POSTGRES_PASSWORD }}
+          DEPLOY_GRAFANA_USER:      ${{ secrets.GRAFANA_ADMIN_USER }}
+          DEPLOY_GRAFANA_PASSWORD:  ${{ secrets.GRAFANA_ADMIN_PASSWORD }}
+          DEPLOY_TELEGRAM_TOKEN:    ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          DEPLOY_TELEGRAM_CHAT_ID:  ${{ secrets.TELEGRAM_CHAT_ID }}
