@@ -1,7 +1,7 @@
 # docker-compose.yml
 
-# Deploy:  docker compose --env-file .env up -d         # стандартный запуск
-# Debug:   docker compose --profile debug up -d          # запуск с adminer
+# Deploy:  docker compose --env-file .env up -d    # стандартный запуск
+# Debug:   docker compose --profile debug up -d    # запуск с adminer
 
 # YAML ANCHORS — механизм переиспользования блоков без дублирования кода
 # &name  — объявление якоря (определяем блок один раз)
