@@ -1,309 +1,295 @@
-# DevOps Portfolio Project
+# DevOps Monitoring Stack
 
-> Multi-container web application with automated CI/CD pipeline and production deployment
-Многоконтейнерное веб-приложение с автоматизированным CI/CD и деплоем в production
+Production-ready мониторинг для Linux-хоста и Docker-контейнеров.
+Разверни полный observability-стек одной командой — метрики, дашборды и Telegram-алерты из коробки.
 
-[![Docker](https://img.shields.io/badge/Docker-2496ED?style=flat&logo=docker&logoColor=white)](https://www.docker.com/)
-[![GitHub Actions](https://img.shields.io/badge/GitHub_Actions-2088FF?style=flat&logo=github-actions&logoColor=white)](https://github.com/features/actions)
-[![Nginx](https://img.shields.io/badge/Nginx-009639?style=flat&logo=nginx&logoColor=white)](https://nginx.org/)
-[![PostgreSQL](https://img.shields.io/badge/PostgreSQL-336791?style=flat&logo=postgresql&logoColor=white)](https://www.postgresql.org/)
+**Tech Stack:**
+`Docker Compose` · `Prometheus` · `Grafana` · `Alertmanager` · `Nginx` · `PostgreSQL` · `Node Exporter` · `cAdvisor` · `GitHub Actions`
 
 ---
 
-## 📋 Table of Contents
+## 📋 Prerequisites
 
-- [Project Overview / Обзор проекта](#project-overview)
-- [Architecture / Архитектура](#architecture)
-- [Tech Stack / Технологический стек](#tech-stack)
-- [Features / Возможности](#features)
-- [Prerequisites / Требования](#prerequisites)
-- [Local Development / Локальная разработка](#local-development)
-- [Production Deployment / Деплой в production](#production-deployment)
-- [CI/CD Pipeline](#cicd-pipeline)
-- [Troubleshooting / Диагностика проблем](#troubleshooting)
-- [Project Structure / Структура проекта](#project-structure)
-- [What I Learned / Чему я научился](#what-i-learned)
-- [Future Improvements / Планы по развитию](#future-improvements)
+- Docker >= 24.0 + Docker Compose >= 2.20
+- Linux-хост (VPS или локальная машина)
+- Открыт только порт **80** (остальные сервисы доступны через Nginx reverse proxy)
+- Telegram Bot Token → [@BotFather](https://t.me/BotFather)
+- Telegram Chat ID → [@userinfobot](https://t.me/userinfobot)
 
 ---
 
-## 🚀 Project Overview
+## 🚀 Быстрый старт
 
-Этот проект демонстрирует готовую к использованию в продакшене инфраструктуру для развёртывания многоконтейнерного веб-приложения с применением современных методов DevOps.
+### Шаг 1 — Клонируй репозиторий
 
-Приложение состоит из нескольких сервисов, управляемых через Docker Compose, и автоматически разворачивается на на рабочем сервере с помощью GitHub Actions при каждом git push.
-
-**Live Demo:** [http://88.218.67.44](http://88.218.67.44)  
-**Admin Panel:** [http://88.218.67.44:8080](http://88.218.67.44:8080)
-
----
-
-## 🏗️ Architecture
-```
-┌─────────────────────────────────────────────────────────────┐
-│                      GitHub Repository                       │
-│                Репозиторий - исходный источник              │
-└───────────────────────┬─────────────────────────────────────┘
-                        │
-                        │ git push (CI/CD trigger)
-                        ▼
-┌─────────────────────────────────────────────────────────────┐
-│                    GitHub Actions Runner                     │
-│                Автоматизация CI/CD пайплайна                 │
-│  ┌────────────────────────────────────────────────────────┐ │
-│  │ 1. Checkout(проверка) кода                                       │ │
-│  │ 2. Подключение к серверу по SSH                         │ │
-│  │ 3. Получение последних изменений                        │ │
-│  │ 4. Пересборка и перезапуск контейнеров                  │ │
-│  └────────────────────────────────────────────────────────┘ │
-└───────────────────────┬─────────────────────────────────────┘
-                        │
-                        │ Развертывание по SSH
-                        ▼
-┌─────────────────────────────────────────────────────────────┐
-│                  Production Server (Cloud.ru)                │
-│                      Ubuntu 24.04 LTS                        │
-│  ┌─────────────────────────────────────────────────────┐   │
-│  │            Docker Compose Network                    │   │
-│  │  ┌─────────────┐  ┌──────────────┐  ┌────────────┐ │   │
-│  │  │    Nginx    │  │  PostgreSQL  │  │  Adminer   │ │   │
-│  │  │   :80       │  │   :5432      │  │   :8080    │ │   │
-│  │  └─────────────┘  └──────────────┘  └────────────┘ │   │
-│  │         │                │                 │         │   │
-│  │         └────────────────┴─────────────────┘         │   │
-│  │                  app-network (bridge)                │   │
-│  └─────────────────────────────────────────────────────┘   │
-└─────────────────────────────────────────────────────────────┘
-                        │
-                        │ HTTP / HTTPS
-                        ▼
-                 ┌──────────────┐
-                 │   Пользователи│
-                 └──────────────┘
-
-
----
-
-## 🛠️ Tech Stack
-
-| Компонент             | Технология     | Назначение                          |
-| --------------------- | -------------- | ----------------------------------- |
-| **Container Runtime** | Docker 24+     | Контейнеризация приложений          |
-| **Orchestration**     | Docker Compose | Управление несколькими контейнерами |
-| **Web Server**        | Nginx (Alpine) | Обслуживание Веб-сервера веб-контента                |
-| **Database**          | PostgreSQL 15  | Хранение данных                     |
-| **DB Admin Tool**     | Adminer        | Веб-интерфейс управления БД         |
-| **CI/CD**             | GitHub Actions | Автоматизация деплоя                |
-| **Version Control**   | Git            | Управление версиями кода версий                     |
-| **Cloud Provider**    | Cloud.ru       | Production-хостинг                  |
-| **OS**                | Ubuntu 24.04   | Операционная система сервера        |
-
-
----
-
-## 📦 Особенности
-
-✅ Многоконтейнерная архитектура с изоляцией сервисов
-✅ Автоматизированный CI/CD запускаемый при каждом git push
-✅ Развертывание в рабочей среде с обновлением без простоев
-✅ Хранение данных с использованием Docker volumes
-✅ Изолированная bridge-сеть Docker
-✅ Подход Infrastructure as Code (IaC)
-✅ Настройка Security Groups на уровне облака 
-
----
-
-## 🔧 Требования
-
-- **Docker** 24.0+
-- **Docker Compose** v2.0+
-- **Git** 2.30+
-- **SSH access** доступ к production-серверу
-- **GitHub account** with repository access
-
----
-
-## 💻 Локальная разработка
-
-### 1. Клонирование репозитория
 ```bash
 git clone https://github.com/boris-isaakyan/web-app.git
-cd devops-portfolio-project
+cd web-app
 ```
 
-### 2. Запуск сервисов
+### Шаг 2 — Заполни переменные окружения
+
 ```bash
-docker compose up -d
+cp .env.example .env
+nano .env
 ```
 
-### 3. Проверка контейнеров
+Обязательно укажи `SERVER_HOST` — IP или домен твоего сервера:
+
 ```bash
-docker compose ps
+SERVER_HOST=your_server_ip   # например: 192.168.1.100 или monitoring.example.com
+# Локально: SERVER_HOST=localhost
 ```
 
-Ожидаемый вывод:
-```
-NAME                STATUS    PORTS
-nginx     Up        0.0.0.0:80->80/tcp
-db        Up        5432/tcp
-adminer   Up        0.0.0.0:8080->8080/tcp
-```
+### Шаг 3 — Создай секреты
 
-### 4. Доступ к приложению
-
-- **Web Interface:** http://localhost
-- **Database Admin:** http://localhost:8080
-
-
-### 5. Остановка сервисы
 ```bash
-docker compose down
+mkdir -p secrets
+
+echo "your_postgres_password"   > secrets/postgres_password
+echo "your_grafana_password"    > secrets/grafana_admin_password
+echo "your_telegram_bot_token"  > secrets/telegram_token
+echo "your_telegram_chat_id"    > secrets/telegram_chat_id
+
+# Пароль для доступа к Prometheus через браузер (basic auth)
+# Требует Docker — ничего дополнительно устанавливать не нужно
+docker run --rm httpd:alpine htpasswd -nbB admin your_prometheus_password \
+  > secrets/nginx_htpasswd
+
+# Права на файлы
+chmod 644 secrets/*   # контейнеры читают от своих пользователей
+chmod 700 secrets/    # папка закрыта снаружи
+```
+
+### Шаг 4 — Запусти стек
+
+```bash
+chmod +x setup.sh
+./setup.sh
+```
+
+Скрипт проверит зависимости, секреты, запустит все сервисы и выведет итоговые URLs.
+
+### Доступ
+
+| Сервис | URL |
+|--------|-----|
+| Приложение | `http://<SERVER_HOST>/` |
+| Grafana | `http://<SERVER_HOST>/grafana` |
+| Prometheus | `http://<SERVER_HOST>/prometheus` (basic auth) |
+
+```bash
+# Debug-режим — запуск с Adminer (веб-интерфейс для PostgreSQL)
+docker compose --profile debug up -d
+# Adminer доступен через SSH-туннель: ssh -L 8080:localhost:8080 user@server
 ```
 
 ---
 
-## 🌐 Деплой в production
+## 🔧 Настройка под себя
 
-Деплой полностью автоматизирован через GitHub Actions.
-Каждый push в ветку master запускает CI/CD пайплайн.
+| Что | Где | Описание |
+|-----|-----|----------|
+| Пороги алертов | `prometheus/alerts.yml` | warning >80%, critical >95% для CPU/RAM/Disk |
+| Retention метрик | `prometheus/prometheus.yml` | По умолчанию 15 дней |
+| Интервал сбора | `prometheus/prometheus.yml` | По умолчанию каждые 30s |
+| Порты сервисов | `.env` | Изменить если порты заняты |
+| Telegram | `secrets/telegram_*` | Токен бота и Chat ID |
+| Повтор алертов | `alertmanager/alertmanager.yml` | critical: 1h, monitoring: 30m, default: 4h |
 
-### Ручной деплой (при необходимости)::
-```bash
+---
 
-cd ~/web-app
-git pull origin master
-docker compose down
-docker compose up -d --build
+## 🏗️ Архитектура
+
 ```
+Интернет
+    │
+    ▼
+ :80 (единственный открытый порт)
+    │
+  Nginx — reverse proxy
+    ├── /              → статика
+    ├── /grafana/      → grafana:3000     (авторизация Grafana)
+    └── /prometheus/   → prometheus:9090  (basic auth)
+
+Изолированы от интернета (internal: true):
+    prometheus, grafana, node-exporter, cadvisor, alertmanager*, postgres
+
+* alertmanager имеет исходящий доступ в интернет для отправки в Telegram
+```
+
+**Сетевая сегментация:**
+
+```
+frontend  — nginx, alertmanager          (есть выход в интернет)
+backend   — postgres                     (internal: true, изолирован)
+monitoring — все сервисы мониторинга     (internal: true, изолирован)
+```
+
+**DNS внутри Docker:** nginx использует `resolver 127.0.0.11` — резолвинг имён контейнеров происходит в момент запроса, а не при старте. Это позволяет nginx стартовать независимо от порядка запуска сервисов.
 
 ---
 
 ## ⚙️ CI/CD Pipeline
 
-CI/CD workflow описан в`.github/workflows/deploy.yml`.
+При пуше в ветку `master` автоматически запускается GitHub Actions:
 
-### Pipeline stages:
+1. **Validate** — проверка синтаксиса `docker-compose.yml` с заглушками
+2. **Deploy via SSH** — деплой на сервер:
+   - `git pull` → запись секретов из GitHub Secrets → генерация `.env`
+   - `docker compose pull` → `docker compose up -d --remove-orphans`
+   - Ожидание 60s → проверка healthchecks → `docker image prune`
 
-1. **Trigger:**  Push в ветку `master`
-2. **Checkout:** Клонирование кода из репозитория
-3. **SSH Connection:** Аутентификация на production-сервере
-4. **Deploy:** 
-   - получение последних изменений из Git
-   - пересборка Docker-образов 
-   - перезапуск контейнеров с новым кодом
-5. **Cleanup:** Удалить неиспользуемые Docker-ресурсы
+Секреты передаются как переменные окружения SSH-сессии — не попадают в логи Actions.
 
-### Конфигурация секретов:
+<details>
+<summary>Необходимые GitHub Secrets</summary>
 
-Следующие секреты должны быть настроены в настройках репозитория GitHub:
+| Secret | Описание |
+|--------|----------|
+| `SSH_HOST` | IP сервера |
+| `SSH_USER` | Пользователь SSH (не root) |
+| `SSH_PRIVATE_KEY` | Приватный SSH-ключ |
+| `POSTGRES_USER` | Имя пользователя PostgreSQL |
+| `POSTGRES_DB` | Имя базы данных |
+| `POSTGRES_PASSWORD` | Пароль PostgreSQL |
+| `GRAFANA_ADMIN_USER` | Логин администратора Grafana |
+| `GRAFANA_ADMIN_PASSWORD` | Пароль администратора Grafana |
+| `TELEGRAM_BOT_TOKEN` | Токен Telegram-бота |
+| `TELEGRAM_CHAT_ID` | ID чата для алертов |
 
-- `SSH_HOST` -  IP-адрес production-сервера
-- `SSH_USER` - имя пользователя SSH
-- `SSH_PRIVATE_KEY` - приватный SSH-ключ для аутентификации
+> После деплоя не забудь вручную создать `secrets/nginx_htpasswd` на сервере (см. Шаг 3).
+
+</details>
 
 ---
 
-## 🐛 Troubleshooting
+## 📊 Мониторинг и Alerting
 
-### Проблема: Порт 80 заблокирован, несмотря на правила UFW
+**Сбор метрик:** Node Exporter (хост) + cAdvisor (контейнеры), scrape каждые 30s
 
-**Симптомы:**
-- `curl` работает локально на сервере
-- Сбой внешнего доступа (тайм-аут соединения)
-- Сканер портов показывает, что порт закрыт
+**Alert rules — 15 правил в 3 группах:**
 
-**Основная причина:**  
-Облачный провайдер (Cloud.ru) использует группы безопасности на уровне гипервизора, которые переопределяют правила брандмауэра на уровне операционной системы.
+| Группа | Алерты |
+|--------|--------|
+| `node_alerts` | HighCPU/Critical (>80/95%), HighMemory/Critical, HighDisk/Critical (>80/95%), HighSystemLoad |
+| `container_alerts` | ContainerHighCPU, ContainerHighMemory, ContainerRestarted, ContainerCrashLoop, ContainerDown, CAdvisorDown |
+| `service_alerts` | ServiceDown (все Prometheus targets) |
 
-**Решение:**
-1. Перейти в Cloud.ru
-2. Группы безопасности → Выберите активную группу
-3. Добавьте правила для входящих сообщений:
-   - Протокол: TCP
-   - Порт: 80, 8080
-   - Исходный код: 0.0.0.0/0
-4. Применяем правила к экземпляру виртуальной машины
+**Alertmanager:**
+- Маршрутизация по `severity` + `component`
+- Inhibit rules — critical подавляет warning для того же компонента
+- Telegram-уведомления с именем контейнера, хостом и временем события
+- Мгновенные алерты для `component: monitoring`, повтор каждые 30 минут
 
-**Команды для диагностики:**
+**Grafana** — дашборды подключаются автоматически через provisioning при старте:
+- Node Exporter Full (метрики хоста)
+- cAdvisor (метрики контейнеров)
+
+---
+
+## 🔐 Безопасность
+
+- Секреты в `secrets/` — не в Git, папка закрыта `chmod 700`
+- Файлы секретов монтируются в контейнеры через volumes (`chmod 644`) — Docker Compose не поддерживает `uid/gid/mode` для secrets (только Docker Swarm)
+- `no-new-privileges: true` + `cap_drop: ALL` + минимальный `cap_add` для всех сервисов
+- `read_only: true` + `tmpfs` для временных файлов
+- `internal: true` для сетей backend и monitoring
+- Единственная точка входа — Nginx на порту 80
+- basic auth на `/prometheus/` — Prometheus не имеет встроенной аутентификации
+- Grafana — собственная аутентификация, проверка обновлений отключена
+- Resource reservations на все контейнеры
+
+> ⚠️ Текущая версия использует HTTP. Для production с реальными данными рекомендуется добавить домен и HTTPS (см. Roadmap v3.0).
+
+---
+
+## 🛠️ Troubleshooting
+
+**Grafana недоступна (`502 Bad Gateway`)**
 ```bash
-# Проверьте, прослушивает ли nginx все интерфейсы
-sudo ss -tulpn | grep :80
+# Убедись что контейнер grafana запущен
+docker compose ps | grep grafana
+# Если отсутствует — запусти
+docker compose up -d grafana
+```
 
-# Протестируйте локальное подключение
-curl -I http://localhost
+**Prometheus: ошибка 500 при входе**
+```bash
+# Проверь что nginx применил актуальный конфиг
+docker exec webapp_nginx nginx -T | grep "location /prometheus"
+# Проверь логи nginx
+docker exec webapp_nginx cat /var/log/nginx/error.log
+```
 
-# Проверьте статус UFW
-sudo ufw status verbose
+**Алерты не приходят в Telegram**
+```bash
+# Проверь что файлы читаемы изнутри контейнера
+docker exec webapp_alertmanager cat /run/secrets/telegram_token
+docker compose logs alertmanager | grep -i "error\|permission"
+```
 
-# Просмотрите журналы контейнера nginx
-docker compose logs nginx
+**Grafana: метрики не отображаются (`Status: 500`)**
+```bash
+# Проверь datasource — URL должен быть с /prometheus
+cat grafana/provisioning/datasources/*.yml | grep url
+# Должно быть: url: http://prometheus:9090/prometheus
+
+# Проверь targets в Prometheus
+# http://<SERVER_HOST>/prometheus/targets — все должны быть UP
+```
+
+**Контейнер в статусе `unhealthy`**
+```bash
+docker inspect <container_name> --format='{{json .State.Health}}' | jq
+docker compose logs <service_name> --tail=30
+```
+
+**Доступ к внутренним сервисам (Alertmanager, Adminer) через SSH-туннель**
+```bash
+ssh -L 9093:localhost:9093 -L 8080:localhost:8080 user@your_server
+# Затем в браузере: http://localhost:9093 (Alertmanager)
 ```
 
 ---
 
-## 📁 Project Structure
+## 📁 Структура проекта
+
 ```
-devops-portfolio-project/
-├── .github/
-│   └── workflows/
-│       └── deploy.yml          # Конфигурация CI/CD pipeline 
+├── .github/workflows/deploy.yml      # CI/CD pipeline
+├── alertmanager/
+│   └── alertmanager.yml              # Маршрутизация алертов, Telegram
+├── grafana/
+│   ├── dashboards/
+│   │   ├── cadvisor.json             # Dashboard контейнеров
+│   │   └── node-exporter.json        # Dashboard хоста
+│   └── provisioning/                 # Автонастройка при старте контейнера
+│       ├── dashboards/
+│       └── datasources/
 ├── nginx/
-│   └── html/
-│       └── index.html          # Web приложение
-├── docker-compose.yml          # Многоконтейнерная оркестрация
-├── .gitignore                  # Правила исключения Git
-└── README.md                   # Проектная документация
+│   ├── html/index.html
+│   └── nginx.conf                    # Reverse proxy: /grafana, /prometheus
+├── postgres/init/                    # Инициализация БД
+├── prometheus/
+│   ├── prometheus.yml                # Scrape configs
+│   └── alerts.yml                    # 15 alert rules
+├── secrets/                          # Runtime-секреты (не в Git)
+├── secrets.example/                  # Шаблоны для onboarding
+├── .env.example                      # Все переменные с описанием
+├── .gitignore
+├── setup.sh                          # Скрипт первого запуска
+└── docker-compose.yml                # 8 сервисов, YAML anchors, 3 сети, 4 volume
 ```
 
 ---
 
-## 🎯 Чему я научился
+## 🎯 Roadmap
 
-### Технические навыки::
-- Контейнеризация Docker и многоконтейнерная оркестрация
-- Проектирование и внедрение CI/CD
-- Автоматизация развертывания на основе SSH
-- Устранение сетевых неполадок на разных уровнях (приложение - ОС - облако)
-- Настройка групп безопасности в облачных средах
-- Рабочий процесс Git и рекомендации по управлению версиями
-
-### Принципы DevOps:
-- Инфраструктура как код (IaC)
-- Стратегии автоматизированного развертывания
-- Создание сетей и изоляция контейнеров
-- Управление постоянными данными
-- Production-отладка
-
-### Опыт устранения неполадок:
-- Диагностирована блокировка портов на уровне облачного провайдера
-- Проведено различие между брандмауэром операционной системы и группами облачной безопасности
-- Использован системный подход: приложение - сеть - инфраструктура
+- **v2.1** — Loki + Promtail (централизованные логи)
+- **v3.0** — HTTPS + Let's Encrypt (требует домен)
+- **v4.0** — Terraform + Ansible (IaC)
+- **v5.0** — Kubernetes + Helm + ArgoCD
 
 ---
 
-## 🚀 Будущие улучшения
-
-**Версия 2.0 — мониторинг стека:**
-- [ ] Prometheus для сбора метрик
-- [ ] Grafana для визуализации на информационных панелях
-- [ ] Node Exporter для метрик хоста
-- [ ] cAdvisor для метрик контейнеров
-- [ ] Настройка оповещений для критических событий
-
-**Версия 3.0 — инфраструктура как код:**
-- [ ] Terraform для подготовки облачной инфраструктуры
-- [ ] Ansible для управления конфигурацией сервера
-- [ ] Автоматическая настройка сервера с нуля
-
-**Версия 4.0 — миграция на Kubernetes:**
-- [ ] Переход с Docker Compose на Kubernetes
-- [ ] Внедрение Helm-чартов для развертывания
-- [ ] Добавление возможностей автоматического масштабирования
-
-**Версия 5.0 — GitOps:**
-- [ ] ArgoCD для непрерывной поставки
-- [ ] Git как единый источник достоверной информации
-
----
-
-**Примечание:** этот проект был создан в рамках моего обучения DevOps, чтобы продемонстрировать практические навыки в области контейнеризации, автоматизации и управления инфраструктурой.
+> Проект создан в рамках изучения DevOps-практик: контейнеризация, автоматизация деплоя, observability и управление инфраструктурой.
