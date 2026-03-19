@@ -1,222 +1,171 @@
 # docker-compose.yml
 
-# Deploy:  docker compose --env-file .env up -d          # стандартный запуск продакшена
-# Debug:   docker compose --profile debug up -d           # запуск с сервисами профиля debug (adminer)
+# Deploy:  docker compose --env-file .env up -d         # стандартный запуск
+# Debug:   docker compose --profile debug up -d          # запуск с adminer
 
 # YAML ANCHORS — механизм переиспользования блоков без дублирования кода
 # &name  — объявление якоря (определяем блок один раз)
 # *name  — ссылка на якорь (вставляем блок в нужное место)
 # <<:    — merge key, выполняет слияние содержимого якоря в текущий блок
 
-x-logging:
-  &default-logging # Якорь: единые настройки логирования для всех сервисов
+x-logging: &default-logging
   logging:
-    driver:
-      json-file # Стандартный драйвер Docker — пишет логи в JSON-файлы на хосте
-      # Альтернативы: syslog, journald, fluentd (для централизованного сбора)
-      # json-file — нет внешних зависимостей, работает всегда
+    driver: json-file
     options:
-      max-size:
-        "10m" # Максимальный размер одного файла лога — 10 МБ
-        # Без этого параметра логи растут бесконечно и забивают диск
-      max-file:
-        "3" # Количество файлов ротации: итого не более 30 МБ на сервис
-        # Старые файлы Docker удаляет автоматически при ротации
+      max-size: "10m"
+      max-file: "3"
 
-x-security:
-  &default-security # Якорь: единые настройки безопасности (hardening) для всех сервисов
+x-security: &default-security
   security_opt:
-    - no-new-privileges:true # Запрещает процессам внутри контейнера получать новые привилегии
-      # через setuid-биты, sudo или execve — защита от privilege escalation
+    - no-new-privileges:true
   cap_drop:
-    - ALL # Принцип минимальных привилегий: убираем ВСЕ Linux capabilities
-      # Каждый сервис затем добавляет только то что реально нужно (cap_add)
+    - ALL
+
 services:
-  # NGINX — веб-сервер, единая точка входа для внешнего HTTP-трафика
+  # NGINX
+  # Единая точка входа для всего внешнего трафика (reverse proxy)
   nginx:
-    image: nginx:1.25-alpine # Latest может измениться в любой момент и сломать продакшен / чем меньше образ — меньше поверхность атаки и уязвимостей
+    image: nginx:1.25-alpine
     container_name: ${COMPOSE_PROJECT_NAME:-webapp}_nginx
-    <<:
-      [*default-logging, *default-security]
-      # Применяем оба якоря: логирование + security hardening
+    <<: [*default-logging, *default-security]
     cap_add:
-      - NET_BIND_SERVICE # порт 80 — привилегированный, capability нужна / Без неё процесс не-root не может слушать порты < 1024
-      - CHOWN # nginx при старте меняет владельца рабочих директорий
-      - SETUID # Мастер-процесс стартует от root, воркеры переключаются на user nginx
-      - SETGID # Аналогично SETUID — переключение группы для воркер-процессов
+      - NET_BIND_SERVICE # слушать порт 80 (< 1024 требует capability)
+      - CHOWN # менять владельца рабочих директорий при старте
+      - SETUID # мастер-процесс стартует от root, воркеры → nginx
+      - SETGID # аналогично SETUID для группы
     ports:
       - "${NGINX_HTTP_PORT:-80}:80"
-        # Best Practice: выносить порты в .env для гибкости (избегать конфликтов)
-        # Значение берётся из .env (по умолчанию 80)
     volumes:
       - ./nginx/html:/usr/share/nginx/html:ro
-        # Статические файлы сайта. :ro — контейнер не может изменить файлы на хосте
-        # ./ — путь относительно расположения docker-compose.yml
       - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
-        # Конфигурация nginx только для чтения
-        # Необходим для перенаправления temp-путей в /tmp (read_only: true)
-        # без него nginx падает с "Permission denied" на /var/cache/nginx
+      # [ИЗМЕНЕНО] монтируем htpasswd через volume (не Docker Secret)
+      # nginx читает его напрямую для basic_auth на /prometheus и /alertmanager
+      - ./secrets/nginx_htpasswd:/etc/nginx/.htpasswd:ro
     networks:
-      - frontend # Внешняя сеть — принимает входящий трафик из интернета
-      - backend # Внутренняя сеть — зарезервировано для проксирования к backend-сервисам
-    restart:
-      unless-stopped # Автоматический перезапуск при падении
-      # Альтернативы: no | always | on-failure[:N]
-    #user: "101:101"               # UID:GID пользователя nginx в alpine — закомментировано:
-    # конфликтует с директивой "user nginx;" в nginx.conf
-    # управление пользователем делегировано конфигу nginx
-    read_only:
-      true # Корневая ФС контейнера только для чтения
-      # Защита от записи вредоносного кода на диск во время работы
-      # Требует явного tmpfs для директорий куда процесс пишет в runtime
+      - frontend # принимает входящий трафик из интернета
+      - backend # зарезервировано для проксирования к backend-сервисам
+      # [ИЗМЕНЕНО] добавлена сеть monitoring — nginx должен достучаться
+      # до grafana и prometheus которые находятся в этой сети
+      - monitoring
+    restart: unless-stopped
+    read_only: true
     tmpfs:
-      - /tmp # Временные файлы в RAM (не сохраняются после рестарта)
-      - /var/run # PID-файл nginx: /var/run/nginx.pid — требует записи
-      - /var/log/nginx # Файлы логов nginx (error.log, access.log) — требует записи
-        # Без этого tmpfs nginx не создаёт лог-файлы из-за read_only
+      - /tmp
+      - /var/run
+      - /var/log/nginx
     healthcheck:
-      test:
-        ["CMD-SHELL", "wget -q -O /dev/null http://127.0.0.1/ || exit 1"]
-        # Проверка работоспособности: wget на localhost порт 80
-        # nginx слушает на 0.0.0.0 (IPv4), поэтому через localhost — Connection refused
-      interval: 30s # Интервал между проверками
-      timeout: 5s # Таймаут одной проверки — если нет ответа, считается failed
-      retries: 3 # Количество неудачных проверок до статуса "unhealthy"
-      start_period: 10s # Grace-период после старта: failures в это время не считаются
+      test: ["CMD-SHELL", "wget -q -O /dev/null http://127.0.0.1/ || exit 1"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
     deploy:
       resources:
-        # limits:
-        # cpus:
-        # memory:
         reservations:
           cpus: "0.05"
           memory: 32M
 
-  # POSTGRESQL — реляционная база данных
+  # POSTGRESQL
   postgres:
-    image: postgres:15-alpine # Alpine для минимального размера образа
+    image: postgres:15-alpine
     container_name: ${COMPOSE_PROJECT_NAME:-webapp}_db
     <<: [*default-logging, *default-security]
     cap_add:
-      - CHOWN # PostgreSQL при инициализации меняет владельца /var/lib/postgresql/data
-      - SETUID # Мастер-процесс postgres стартует от root, воркеры — от пользователя postgres
-      - SETGID # Аналогично SETUID для группы postgres
-      - DAC_OVERRIDE # Переопределение прав доступа к файлам (Discretionary Access Control)
-        # Нужен postgres при инициализации кластера для работы с файлами БД
+      - CHOWN # менять владельца /var/lib/postgresql/data при инициализации
+      - SETUID # мастер-процесс стартует от root, воркеры → postgres
+      - SETGID # аналогично SETUID для группы
+      - DAC_OVERRIDE # переопределение прав при инициализации кластера
     environment:
-      POSTGRES_USER:
-        ${POSTGRES_USER}
-        # Имя суперпользователя БД — берётся из .env, не хардкодим
-      POSTGRES_DB:
-        ${POSTGRES_DB}
-        # Имя БД из .env
-      POSTGRES_PASSWORD_FILE:
-        /run/secrets/postgres_password
-        # Суффикс _FILE — специальный паттерн официального postgres-образа
-        # Пароль через файл секрета (не через POSTGRES_PASSWORD!)
-    secrets:
-      - postgres_password # Docker secret монтируется как файл /run/secrets/postgres_password
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_DB: ${POSTGRES_DB}
+      POSTGRES_PASSWORD_FILE: /run/secrets/postgres_password
+    # [ИЗМЕНЕНО] убрана секция secrets: — uid/gid/mode не поддерживаются
+    # в Docker Compose (только в Swarm). Монтируем файл напрямую через volumes
+    # с правами 644 на хосте — папка secrets/ защищена chmod 700
     volumes:
       - postgres-data:/var/lib/postgresql/data
-        # Named volume для персистентности данных БД между рестартами
+      - ./secrets/postgres_password:/run/secrets/postgres_password:ro
     networks:
-      - backend # Изоляция: только nginx и внутренние сервисы могут подключиться
-    restart: unless-stopped # Автоматический перезапуск при падении
+      - backend
+    restart: unless-stopped
     healthcheck:
-      test:
-        ["CMD-SHELL", "pg_isready -U $$POSTGRES_USER -d $$POSTGRES_DB"]
-        # pg_isready — официальная утилита проверки готовности PostgreSQL
-        # $$ — двойное экранирование: compose видит $$, shell внутри — одинарный $
-      interval: 10s # Чаще чем у других — БД критична для зависимых сервисов
+      test: ["CMD-SHELL", "pg_isready -U $$POSTGRES_USER -d $$POSTGRES_DB"]
+      interval: 10s
       timeout: 5s
-      retries: 5 # Больше попыток — первый запуск postgres долгий (инициализация кластера)
-      start_period: 30s # 30 секунд на создание кластера и БД при первом запуске
+      retries: 5
+      start_period: 30s
     deploy:
       resources:
-        # limits:
-        # cpus:
-        # memory:
         reservations:
           cpus: "0.25"
           memory: 256M
 
-  # ADMINER — веб-интерфейс для управления БД (только для отладки)
+  # ADMINER
+  # Только в debug-режиме: docker compose --profile debug up -d
   adminer:
     image: adminer:4.8.1
     container_name: ${COMPOSE_PROJECT_NAME:-webapp}_adminer
     profiles:
-      - debug # Сервис запускается ТОЛЬКО с флагом docker compose --profile debug up -d
-        # В production adminer недоступен — убираем лишнюю поверхность атаки
+      - debug
     <<: [*default-logging, *default-security]
     ports:
       - "${ADMINER_PORT:-8080}:8080"
     depends_on:
       postgres:
-        condition:
-          service_healthy
-          # Запускать adminer только когда postgres прошёл healthcheck
+        condition: service_healthy
     networks:
-      - backend # Доступ к PostgreSQL
-      - frontend # Доступ из браузера (только в debug режиме!)
-    restart: unless-stopped # Автоматический перезапуск при падении
-    user:
-      "82:82" # UID:GID пользователя www-data в alpine-образе adminer
-      # Запуск от непривилегированного пользователя
-    read_only: true # Файловая система только для чтения, Adminer не пишет данные на диск
+      - backend
+      - frontend
+    restart: unless-stopped
+    user: "82:82"
+    read_only: true
     tmpfs:
-      - /tmp # Временные файлы сессий в RAM
+      - /tmp
     healthcheck:
-      test:
-        ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1:8080/"]
-        # 127.0.0.1 — обход IPv6 проблемы Alpine (localhost → ::1)
-        # -O /dev/null — читаем весь ответ, избегаем broken pipe
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1:8080/"]
       interval: 30s
       timeout: 5s
       retries: 3
     deploy:
       resources:
-        # limits:
-        # cpus:
-        # memory:
         reservations:
           cpus: "0.05"
           memory: 32M
 
-  # PROMETHEUS — сбор метрик, хранение временных рядов, движок алертинга
+  # PROMETHEUS
   prometheus:
     image: prom/prometheus:v2.45.0
     container_name: ${COMPOSE_PROJECT_NAME:-webapp}_prometheus
-    <<:
-      [*default-logging, *default-security]
-      # Prometheus не требует дополнительных capabilities —
-      # только читает метрики по HTTP и пишет в свой volume
+    <<: [*default-logging, *default-security]
     command:
       - "--config.file=/etc/prometheus/prometheus.yml"
-        # Явно указываем путь к конфигу scrape targets
       - "--storage.tsdb.path=/prometheus"
-        # Путь к TSDB (Time Series DataBase) — где хранятся метрики
       - "--storage.tsdb.retention.time=15d"
-        # Хранить метрики 15 дней, старше — автоматически удалять, баланс между глубиной истории и размером хранилища
-      - "--web.enable-lifecycle" # Включает HTTP API управления: POST /-/reload перезагружает конфиг
+      - "--web.enable-lifecycle"
+      # [ИЗМЕНЕНО] добавлены два флага для работы за nginx reverse proxy:
+      # web.external-url — Prometheus знает что снаружи он доступен по /prometheus/
+      # web.route-prefix — все внутренние маршруты тоже сдвигаются на /prometheus/
+      # Это позволяет nginx передавать путь как есть, без rewrite
+      - "--web.external-url=/prometheus/"
+      - "--web.route-prefix=/prometheus/"
     volumes:
       - ./prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
-        # Конфиг scrape targets — откуда собирать метрики
       - ./prometheus/alerts.yml:/etc/prometheus/alerts.yml:ro
-        # Правила алертинга — монтируем отдельным файлом для удобства
       - prometheus-data:/prometheus
-        # Named volume для TSDB (метрики сохраняются при рестарте)
-    ports:
-      - "${PROMETHEUS_PORT:-9090}:9090"
+    # [ИЗМЕНЕНО] ports убраны — Prometheus недоступен снаружи напрямую
+    # доступ только через nginx → /prometheus/ с basic_auth
+    # [ИЗМЕНЕНО] убраны сети frontend и backend — Prometheus общается
+    # только с exporters и alertmanager внутри сети monitoring
     networks:
-      - monitoring # Связь с exporters: node-exporter, cadvisor, alertmanager
-      - backend # Доступ к сервисам для scraping метрик приложений
-      - frontend # Доступ к веб-интерфейсу из браузера
-    restart: unless-stopped # Автоматический перезапуск при падении
-    user: "65534:65534" # Запуск от nobody (UID 65534) — минимальные привилегии, Prometheus не требует root для работы
-    read_only: true # Файловая система только для чтения, TSDB пишется в volume (/prometheus)
+      - monitoring
+    restart: unless-stopped
+    user: "65534:65534"
+    read_only: true
     tmpfs:
-      - /tmp # Временные файлы в RAM
+      - /tmp
     healthcheck:
+      # [ИЗМЕНЕНО] путь обновлён с учётом web.route-prefix=/prometheus/
+      # теперь health endpoint доступен по /prometheus/-/healthy
       test:
         [
           "CMD",
@@ -224,76 +173,62 @@ services:
           "-q",
           "-O",
           "/dev/null",
-          "http://127.0.0.1:9090/-/healthy",
+          "http://127.0.0.1:9090/prometheus/-/healthy",
         ]
-        # /-/healthy — официальный health endpoint Prometheus
-        # Возвращает 200 OK когда сервер готов принимать запросы и scrape
       interval: 30s
       timeout: 5s
       retries: 3
       start_period: 20s
     deploy:
       resources:
-        # limits:
-        # cpus:
-        # memory:
         reservations:
           cpus: "0.25"
           memory: 256M
 
-  # GRAFANA — визуализация метрик, дашборды, управление алертами
+  # GRAFANA
   grafana:
     image: grafana/grafana:10.2.2
     container_name: ${COMPOSE_PROJECT_NAME:-webapp}_grafana
     <<: [*default-logging, *default-security]
     cap_add:
-      - CHOWN # ✅ Нужен для работы с томами
-        # Grafana при старте меняет владельца /var/lib/grafana на grafana:grafana
-      - SETUID # ✅ Нужен для инициализации
-        # Entrypoint стартует от root и переключается на пользователя grafana (472)
-      - SETGID # ✅ Нужен для инициализации
-        # Аналогично SETUID — переключение группы
-      # NET_BIND_SERVICE — не нужен, порт 3000 не привилегированный
+      - CHOWN # менять владельца /var/lib/grafana при старте
+      - SETUID # entrypoint стартует от root → переключается на grafana (472)
+      - SETGID # аналогично SETUID для группы
     environment:
-      GF_SECURITY_ADMIN_USER:
-        ${GRAFANA_ADMIN_USER}
-        # Имя администратора из .env — не хардкодим в конфиге
-      GF_SECURITY_ADMIN_PASSWORD_FILE:
-        /run/secrets/grafana_admin_password
-        # Суффикс _FILE — Grafana читает пароль из файла секрета, пароль не виден в docker inspect
-      GF_ANALYTICS_REPORTING_ENABLED:
-        "false"
-        # Отключаем телеметрию — Grafana по умолчанию отправляет
-      GF_PATHS_PROVISIONING:
-        /etc/grafana/provisioning
-        # Путь к provisioning-директории, позволяет управлять конфигурацией как код
-    secrets:
-      - grafana_admin_password # Монтируется в /run/secrets/grafana_admin_password
+      GF_SECURITY_ADMIN_USER: ${GRAFANA_ADMIN_USER}
+      GF_SECURITY_ADMIN_PASSWORD_FILE: /run/secrets/grafana_admin_password
+      GF_ANALYTICS_REPORTING_ENABLED: "false"
+      # [ИЗМЕНЕНО] отключаем проверку обновлений — Grafana пытается
+      # достучаться до github.com, но сеть monitoring изолирована (internal: true)
+      GF_ANALYTICS_CHECK_FOR_UPDATES: "false"
+      GF_ANALYTICS_CHECK_FOR_PLUGIN_UPDATES: "false"
+      GF_PATHS_PROVISIONING: /etc/grafana/provisioning
+      # [ИЗМЕНЕНО] три переменные для работы за nginx reverse proxy:
+      # ROOT_URL — Grafana генерирует ссылки с префиксом /grafana/
+      # SERVE_FROM_SUB_PATH — разрешает работу с субпути /grafana/
+      # DOMAIN — берём из .env, иначе %(domain)s резолвится в localhost
+      GF_SERVER_ROOT_URL: "%(protocol)s://%(domain)s/grafana/"
+      GF_SERVER_SERVE_FROM_SUB_PATH: "true"
+      GF_SERVER_DOMAIN: "${SERVER_HOST}"
+    # [ИЗМЕНЕНО] убрана секция secrets: — монтируем файл напрямую через volumes
     volumes:
       - grafana-data:/var/lib/grafana
-        # Named volume для данных Grafana (дашборды, пользователи, настройки)
-        # Без него все настройки теряются при рестарте
       - ./grafana/provisioning:/etc/grafana/provisioning:ro
-        # Provisioning конфиги: datasources.yml + dashboard.yml
-        # Grafana автоматически применяет их при каждом старте
       - ./grafana/dashboards:/etc/grafana/dashboards:ro
-        # JSON-файлы дашбордов в ./grafana/provisioning/dashboards/dashboard.yml
-    ports:
-      - "${GRAFANA_PORT:-3000}:3000"
-        # Веб-интерфейс: http://localhost:3000, Логин/пароль из .env и secrets
+      - ./secrets/grafana_admin_password:/run/secrets/grafana_admin_password:ro
+    # [ИЗМЕНЕНО] ports убраны — Grafana доступна только через nginx → /grafana/
     depends_on:
       prometheus:
-        condition:
-          service_healthy
-          # Grafana стартует только после готовности Prometheus
+        condition: service_healthy
+    # [ИЗМЕНЕНО] убрана сеть frontend — Grafana не публикует порты наружу
+    # nginx достучится через сеть monitoring
     networks:
-      - frontend # доступ к UI снаружи
-      - monitoring # связь с Prometheus внутри — для datasource запросов
-    restart: unless-stopped # Автоматический перезапуск при падении
-    user: "472:472" # Запуск от пользователя grafana (UID 472 в официальном образе)
-    read_only: true # Файловая система только для чтения, данные пишутся в volume (/var/lib/grafana)
+      - monitoring
+    restart: unless-stopped
+    user: "472:472"
+    read_only: true
     tmpfs:
-      - /tmp # Временные файлы (кэш, сессии) в RAM
+      - /tmp
     healthcheck:
       test:
         [
@@ -304,50 +239,41 @@ services:
           "/dev/null",
           "http://127.0.0.1:3000/api/health",
         ]
-        # /api/health возвращает статус Grafana
       interval: 30s
+      timeout: 5s
       retries: 3
       start_period: 20s
     deploy:
       resources:
-        # limits:
-        # cpus: '
-        # memory:
         reservations:
           cpus: "0.1"
           memory: 128M
 
-  # NODE EXPORTER — метрики хост-системы (CPU, RAM, Disk, Network, FS)
+  # NODE EXPORTER
   node-exporter:
     image: prom/node-exporter:v1.6.1
     container_name: ${COMPOSE_PROJECT_NAME:-webapp}_node-exporter
-    <<:
-      [*default-logging, *default-security]
-      # cap_drop: ALL без cap_add — node-exporter не требует привилегий
-      # Читает метрики через /host (bind mount хост-системы)
+    <<: [*default-logging, *default-security]
     command:
-      - "--path.rootfs=/host" # Путь к корневой ФС хоста (монтируется в volumes)
-        # Без этого node-exporter собирал бы метрики контейнера, а не хоста
+      - "--path.rootfs=/host"
       - "--collector.filesystem.mount-points-exclude=^/(sys|proc|dev|host|etc)($$|/)"
-        # Исключаем виртуальные и служебные ФС из метрик дисков
-        # /proc, /sys, /dev — не реальные диски, создают шум в метриках
-        # $$ — экранирование $ от docker-compose (иначе интерпретируется как переменная)
     volumes:
-      - /:/host:ro,rslave # Монтируем корень хост-системы только для чтения
-        # rslave (recursive slave) — изменения маунтов хоста видны в контейнере,
-        # но маунты контейнера не видны хосту. Нужно для корректных метрик дисков
+      - /:/host:ro,rslave
       - /run/udev:/host/run/udev:ro
-        # Монтируем udev с хоста в /host (учитывая --path.rootfs=/host)
-    ports:
-      - "${NODE_EXPORTER_PORT:-9100}:9100"
+      # [ИЗМЕНЕНО] добавлен прямой mount /run/udev/data
+      # без него node-exporter не может читать расширенные свойства дисков
+      # и пишет ошибку "Failed to open directory, disabling udev device properties"
+      - /run/udev/data:/run/udev/data:ro
+    # [ИЗМЕНЕНО] ports убраны — метрики доступны только Prometheus внутри
+    # сети monitoring. Grafana показывает всё через datasource — прямой доступ не нужен
+    # [ИЗМЕНЕНО] убрана сеть frontend — node-exporter изолирован
     networks:
-      - monitoring # Внутренняя сеть для сбора метрик
-      - frontend # Внешний доступ к /metrics — проброс порта требует non-internal сети
-    restart: unless-stopped # Автоматический перезапуск при падении
-    user: "65534:65534" # nobody:nogroup — node-exporter только читает данные, root не нужен
-    read_only: true # Файловая система только для чтения, node-exporter ничего не пишет
+      - monitoring
+    restart: unless-stopped
+    user: "65534:65534"
+    read_only: true
     tmpfs:
-      - /tmp # Минимальный tmpfs для runtime нужд процесса
+      - /tmp
     healthcheck:
       test:
         [
@@ -358,96 +284,77 @@ services:
           "/dev/null",
           "http://127.0.0.1:9100/metrics",
         ]
-        # Проверяем доступность /metrics эндпоинта
-        # --spider закрывал соединение не читая ответ → broken pipe в логах
       interval: 30s
       timeout: 5s
       retries: 3
     deploy:
       resources:
-        # limits:
-        # cpus:
-        # memory:
         reservations:
           cpus: "0.05"
           memory: 32M
 
-  # CADVISOR — метрики Docker-контейнеров (CPU, RAM, Network per container)
+  # CADVISOR
   cadvisor:
     image: gcr.io/cadvisor/cadvisor:v0.49.1
     container_name: ${COMPOSE_PROJECT_NAME:-webapp}_cadvisor
-    privileged:
-      true # нужен для доступа к cgroup — альтернативы нет
-      # cAdvisor читает cgroup напрямую для метрик контейнеров
-    <<: [*default-logging] # Не применяем x-security (cap_drop: ALL конфликтует с privileged)
+    privileged: true # нужен для доступа к cgroup — альтернативы нет
+    <<: [*default-logging] # x-security не применяем — конфликтует с privileged
     command:
-      - "--docker_only" # Собирать метрики только Docker-контейнеров
-        # Без флага cAdvisor собирает все процессы системы — лишний шум
+      - "--docker_only"
       - "--housekeeping_interval=30s"
-        # Интервал сбора метрик контейнеров (дефолт: 10s)
-        # Баланс между детализацией и нагрузкой на Docker daemon
     volumes:
-      - /:/rootfs:ro # Корень хост-системы — для метрик файловых систем контейнеров
-      - /var/run:/var/run:ro # Docker socket (/var/run/docker.sock) — связь с Docker daemon
-      - /sys:/sys:ro # Cgroup файловая система — основной источник метрик контейнеров
+      - /:/rootfs:ro
+      - /var/run:/var/run:ro
+      - /sys:/sys:ro
       - /var/lib/docker/:/var/lib/docker:ro
-        # Данные Docker-образов и контейнеров — для метрик слоёв
-      - /dev/disk/:/dev/disk:ro # Информация о блочных устройствах — для disk I/O метрик
-    ports:
-      - "${CADVISOR_PORT:-8081}:8080"
+      - /dev/disk/:/dev/disk:ro
+    # [ИЗМЕНЕНО] ports убраны — метрики доступны только Prometheus
+    # [ИЗМЕНЕНО] убрана сеть frontend — cadvisor изолирован
     networks:
-      - monitoring # Внутренняя сеть для Prometheus
-      - frontend # Внешний доступ к UI
-    restart: unless-stopped # Автоматический перезапуск при падении
+      - monitoring
+    restart: unless-stopped
     healthcheck:
-      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1:8080/"] # Проверка доступности веб-интерфейса
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1:8080/"]
       interval: 30s
       timeout: 5s
       retries: 3
       start_period: 20s
     deploy:
       resources:
-        # limits:
-        # cpus:
-        # memory:
         reservations:
           cpus: "0.05"
           memory: 64M
 
-  # ALERTMANAGER — маршрутизация, группировка и отправка алертов
+  # ALERTMANAGER
   alertmanager:
-    image:
-      prom/alertmanager:v0.31.0
-      # v0.31.0 — добавлена поддержка chat_id_file для Telegram, в v0.27.0-v0.28.0 этот параметр отсутствовал
+    image: prom/alertmanager:v0.31.0
     container_name: ${COMPOSE_PROJECT_NAME:-webapp}_alertmanager
     <<: [*default-logging, *default-security]
     cap_add:
-      - NET_BIND_SERVICE # Порт 9093 > 1024 — формально не требуется
+      - NET_BIND_SERVICE
     command:
       - "--config.file=/etc/alertmanager/alertmanager.yml"
-        # Путь к конфигу: маршруты алертов, получатели, inhibit rules
       - "--storage.path=/alertmanager"
-        # Путь для хранения состояния: silences и notification log, требуется volume для персистентности
       - "--cluster.listen-address="
-        # одна нода — кластер не нужен, Clustering нужен для HA (несколько реплик Alertmanager)
-    secrets:
-      - telegram_token # Bot token → /run/secrets/telegram_token, читается через bot_token_file в alertmanager.yml
-      - telegram_chat_id # Chat ID → /run/secrets/telegram_chat_id, читается через chat_id_file в alertmanager.yml
+    # [ИЗМЕНЕНО] убрана секция secrets: — монтируем файлы напрямую через volumes
+    # причина: Docker Compose игнорирует uid/gid/mode в secrets (только Swarm)
+    # файлы принадлежат 1000:1000, alertmanager запущен от 65534:65534
+    # решение: chmod 644 на файлах + монтирование через volumes
     volumes:
-      - ./alertmanager/alertmanager.yml:/etc/alertmanager/alertmanager.yml:ro # Конфиг маршрутизации: route, receivers, inhibit_rules
+      - ./alertmanager/alertmanager.yml:/etc/alertmanager/alertmanager.yml:ro
       - alertmanager-data:/alertmanager
-        # Named volume: silences и notification log, без него все silences теряются при каждом рестарте
-    ports:
-      - "${ALERTMANAGER_PORT:-9093}:9093"
+      - ./secrets/telegram_token:/run/secrets/telegram_token:ro
+      - ./secrets/telegram_chat_id:/run/secrets/telegram_chat_id:ro
+    # [ИЗМЕНЕНО] ports убраны — Alertmanager доступен только через nginx
     networks:
-      - monitoring # связь с Prometheus — получаем алерты через эту сеть
-      - frontend # исходящий доступ для Telegram API
-        # frontend без internal: true — есть выход в интернет
-    restart: unless-stopped # Автоматический перезапуск при падении
-    user: "65534:65534" # nobody:nogroup — alertmanager не требует привилегий
-    read_only: true # Файловая система только для чтения, данные пишутся в volume (/alertmanager)
+      - monitoring # получает алерты от Prometheus
+      - frontend # ВАЖНО: нужна для исходящих запросов к Telegram API
+        # frontend без internal:true — есть выход в интернет
+    restart: unless-stopped
+    user: "65534:65534"
+    read_only: true
     tmpfs:
-      - /tmp # Runtime временные файлы
+      - /tmp
     healthcheck:
       test:
         [
@@ -458,16 +365,12 @@ services:
           "/dev/null",
           "http://127.0.0.1:9093/-/healthy",
         ]
-        # /-/healthy возвращает 200 OK если Alertmanager готов
       interval: 30s
       timeout: 5s
       retries: 3
       start_period: 20s
     deploy:
       resources:
-        # limits:
-        # cpus:
-        # memory:
         reservations:
           cpus: "0.05"
           memory: 32M
@@ -475,45 +378,36 @@ services:
 # СЕТИ
 networks:
   frontend:
-    driver:
-      bridge # nginx, grafana, alertmanager — внешний трафик
-      # Bridge network с доступом извне (published ports)
-      # и проброс портов (ports:) работает корректно
+    driver: bridge
+    # nginx, alertmanager — внешний трафик + исходящий доступ в интернет
+    # единственная сеть БЕЗ internal:true
+
   backend:
     driver: bridge
-    internal:
-      true # postgres — полная изоляция от интернета
-      # internal: true = нет маршрута за пределы Docker сети
-      # БД доступна только сервисам в этой же сети
+    internal: true
+    # postgres — полная изоляция от интернета
+    # доступна только сервисам в этой же сети
+
   monitoring:
     driver: bridge
-    internal:
-      true # метрики циркулируют только внутри
-      # Exporters и Prometheus изолированы от интернета
-      # Alertmanager подключён к frontend для исходящего доступа к Telegram
+    internal: true
+    # все сервисы мониторинга изолированы от интернета
+    # nginx подключён сюда чтобы проксировать к grafana и prometheus
+    # alertmanager подключён к frontend для исходящего доступа к Telegram
 
-# ТОМА — персистентное хранилище данных между рестартами контейнеров
+# ТОМА
 volumes:
-  postgres-data: # Данные PostgreSQL: таблицы, индексы, WAL / Потеря = потеря всех данных приложения
-  prometheus-data: # TSDB Prometheus: все метрики за период retention (15d)
-  grafana-data: # БД Grafana: пользователи, настройки, плагины
-  alertmanager-data: # Состояние Alertmanager: silences, notification log
+  postgres-data: # данные PostgreSQL — потеря = потеря всех данных БД
+  prometheus-data: # TSDB Prometheus — метрики за 15 дней
+  grafana-data: # данные Grafana — дашборды, пользователи, настройки
+  alertmanager-data: # состояние Alertmanager — silences, notification log
 
-# СЕКРЕТЫ — чувствительные данные, изолированные от конфигурации
+# СЕКРЕТЫ
+# [ИЗМЕНЕНО] секция сохранена только для nginx_htpasswd
+# остальные секреты переведены на прямое монтирование через volumes
+# причина: Docker Compose не поддерживает uid/gid/mode (только Docker Swarm)
 secrets:
-  postgres_password:
-    file:
-      ./secrets/postgres_password
-      # Файл с паролем для PostgreSQL
-  grafana_admin_password:
-    file:
-      ./secrets/grafana_admin_password
-      # Файл с паролем администратора Grafana
-  telegram_token:
-    file:
-      ./secrets/telegram_token
-      # Токен Telegram бота (получить от @BotFather)
-  telegram_chat_id:
-    file:
-      ./secrets/telegram_chat_id
-      # ID чата для уведомлений (получить от @userinfobot)
+  nginx_htpasswd:
+    file: ./secrets/nginx_htpasswd
+    # логин:хэш для basic_auth на /prometheus и /alertmanager
+    # генерация: docker run --rm httpd:alpine htpasswd -nbB admin your_password
