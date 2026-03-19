@@ -1,7 +1,7 @@
-# DevOps Monitoring Stack
+# Monitoring Stack
 
 Production-ready мониторинг для Linux-хоста и Docker-контейнеров.
-Разверни полный observability-стек одной командой — метрики, дашборды и Telegram-алерты из коробки.
+Полный observability-стек одной командой — метрики, дашборды и Telegram-алерты из коробки
 
 **Tech Stack:**
 `Docker Compose` · `Prometheus` · `Grafana` · `Alertmanager` · `Nginx` · `PostgreSQL` · `Node Exporter` · `cAdvisor` · `GitHub Actions`
@@ -12,7 +12,7 @@ Production-ready мониторинг для Linux-хоста и Docker-конт
 
 - Docker >= 24.0 + Docker Compose >= 2.20
 - Linux-хост (VPS или локальная машина)
-- Открыт только порт **80** (остальные сервисы доступны через Nginx reverse proxy)
+- Открыты только порты **80** и **22** (остальные сервисы доступны через Nginx reverse proxy)
 - Telegram Bot Token → [@BotFather](https://t.me/BotFather)
 - Telegram Chat ID → [@userinfobot](https://t.me/userinfobot)
 
@@ -61,7 +61,7 @@ chmod 644 secrets/*   # контейнеры читают от своих пол
 chmod 700 secrets/    # папка закрыта снаружи
 ```
 
-### Шаг 4 — Запусти стек
+### Шаг 4 — Запуск стека
 
 ```bash
 chmod +x setup.sh
@@ -72,10 +72,10 @@ chmod +x setup.sh
 
 ### Доступ
 
-| Сервис | URL |
-|--------|-----|
-| Приложение | `http://<SERVER_HOST>/` |
-| Grafana | `http://<SERVER_HOST>/grafana` |
+| Сервис     | URL                                            |
+| ---------- | ---------------------------------------------- |
+| Приложение | `http://<SERVER_HOST>/`                        |
+| Grafana    | `http://<SERVER_HOST>/grafana`                 |
 | Prometheus | `http://<SERVER_HOST>/prometheus` (basic auth) |
 
 ```bash
@@ -88,14 +88,14 @@ docker compose --profile debug up -d
 
 ## 🔧 Настройка под себя
 
-| Что | Где | Описание |
-|-----|-----|----------|
-| Пороги алертов | `prometheus/alerts.yml` | warning >80%, critical >95% для CPU/RAM/Disk |
-| Retention метрик | `prometheus/prometheus.yml` | По умолчанию 15 дней |
-| Интервал сбора | `prometheus/prometheus.yml` | По умолчанию каждые 30s |
-| Порты сервисов | `.env` | Изменить если порты заняты |
-| Telegram | `secrets/telegram_*` | Токен бота и Chat ID |
-| Повтор алертов | `alertmanager/alertmanager.yml` | critical: 1h, monitoring: 30m, default: 4h |
+| Что              | Где                             | Описание                                     |
+| ---------------- | ------------------------------- | -------------------------------------------- |
+| Пороги алертов   | `prometheus/alerts.yml`         | warning >80%, critical >95% для CPU/RAM/Disk |
+| Retention метрик | `prometheus/prometheus.yml`     | По умолчанию 15 дней                         |
+| Интервал сбора   | `prometheus/prometheus.yml`     | По умолчанию каждые 30s                      |
+| Порты сервисов   | `.env`                          | Изменить если порты заняты                   |
+| Telegram         | `secrets/telegram_*`            | Токен бота и Chat ID                         |
+| Повтор алертов   | `alertmanager/alertmanager.yml` | critical: 1h, monitoring: 30m, default: 4h   |
 
 ---
 
@@ -145,18 +145,18 @@ monitoring — все сервисы мониторинга     (internal: true,
 <details>
 <summary>Необходимые GitHub Secrets</summary>
 
-| Secret | Описание |
-|--------|----------|
-| `SSH_HOST` | IP сервера |
-| `SSH_USER` | Пользователь SSH (не root) |
-| `SSH_PRIVATE_KEY` | Приватный SSH-ключ |
-| `POSTGRES_USER` | Имя пользователя PostgreSQL |
-| `POSTGRES_DB` | Имя базы данных |
-| `POSTGRES_PASSWORD` | Пароль PostgreSQL |
-| `GRAFANA_ADMIN_USER` | Логин администратора Grafana |
+| Secret                   | Описание                      |
+| ------------------------ | ----------------------------- |
+| `SSH_HOST`               | IP сервера                    |
+| `SSH_USER`               | Пользователь SSH (не root)    |
+| `SSH_PRIVATE_KEY`        | Приватный SSH-ключ            |
+| `POSTGRES_USER`          | Имя пользователя PostgreSQL   |
+| `POSTGRES_DB`            | Имя базы данных               |
+| `POSTGRES_PASSWORD`      | Пароль PostgreSQL             |
+| `GRAFANA_ADMIN_USER`     | Логин администратора Grafana  |
 | `GRAFANA_ADMIN_PASSWORD` | Пароль администратора Grafana |
-| `TELEGRAM_BOT_TOKEN` | Токен Telegram-бота |
-| `TELEGRAM_CHAT_ID` | ID чата для алертов |
+| `TELEGRAM_BOT_TOKEN`     | Токен Telegram-бота           |
+| `TELEGRAM_CHAT_ID`       | ID чата для алертов           |
 
 > После деплоя не забудь вручную создать `secrets/nginx_htpasswd` на сервере (см. Шаг 3).
 
@@ -170,19 +170,21 @@ monitoring — все сервисы мониторинга     (internal: true,
 
 **Alert rules — 15 правил в 3 группах:**
 
-| Группа | Алерты |
-|--------|--------|
-| `node_alerts` | HighCPU/Critical (>80/95%), HighMemory/Critical, HighDisk/Critical (>80/95%), HighSystemLoad |
+| Группа             | Алерты                                                                                                     |
+| ------------------ | ---------------------------------------------------------------------------------------------------------- |
+| `node_alerts`      | HighCPU/Critical (>80/95%), HighMemory/Critical, HighDisk/Critical (>80/95%), HighSystemLoad               |
 | `container_alerts` | ContainerHighCPU, ContainerHighMemory, ContainerRestarted, ContainerCrashLoop, ContainerDown, CAdvisorDown |
-| `service_alerts` | ServiceDown (все Prometheus targets) |
+| `service_alerts`   | ServiceDown (все Prometheus targets)                                                                       |
 
 **Alertmanager:**
+
 - Маршрутизация по `severity` + `component`
 - Inhibit rules — critical подавляет warning для того же компонента
 - Telegram-уведомления с именем контейнера, хостом и временем события
 - Мгновенные алерты для `component: monitoring`, повтор каждые 30 минут
 
 **Grafana** — дашборды подключаются автоматически через provisioning при старте:
+
 - Node Exporter Full (метрики хоста)
 - cAdvisor (метрики контейнеров)
 
@@ -207,6 +209,7 @@ monitoring — все сервисы мониторинга     (internal: true,
 ## 🛠️ Troubleshooting
 
 **Grafana недоступна (`502 Bad Gateway`)**
+
 ```bash
 # Убедись что контейнер grafana запущен
 docker compose ps | grep grafana
@@ -215,37 +218,42 @@ docker compose up -d grafana
 ```
 
 **Prometheus: ошибка 500 при входе**
+
 ```bash
-# Проверь что nginx применил актуальный конфиг
+# Проверить, что nginx применил актуальный конфиг
 docker exec webapp_nginx nginx -T | grep "location /prometheus"
-# Проверь логи nginx
+# Проверить логи nginx
 docker exec webapp_nginx cat /var/log/nginx/error.log
 ```
 
 **Алерты не приходят в Telegram**
+
 ```bash
-# Проверь что файлы читаемы изнутри контейнера
+# Проверить, что файлы читаемы изнутри контейнера
 docker exec webapp_alertmanager cat /run/secrets/telegram_token
 docker compose logs alertmanager | grep -i "error\|permission"
 ```
 
 **Grafana: метрики не отображаются (`Status: 500`)**
+
 ```bash
-# Проверь datasource — URL должен быть с /prometheus
+# Проверить, datasource — URL должен быть с /prometheus
 cat grafana/provisioning/datasources/*.yml | grep url
 # Должно быть: url: http://prometheus:9090/prometheus
 
-# Проверь targets в Prometheus
+# Проверить, targets в Prometheus
 # http://<SERVER_HOST>/prometheus/targets — все должны быть UP
 ```
 
 **Контейнер в статусе `unhealthy`**
+
 ```bash
 docker inspect <container_name> --format='{{json .State.Health}}' | jq
 docker compose logs <service_name> --tail=30
 ```
 
 **Доступ к внутренним сервисам (Alertmanager, Adminer) через SSH-туннель**
+
 ```bash
 ssh -L 9093:localhost:9093 -L 8080:localhost:8080 user@your_server
 # Затем в браузере: http://localhost:9093 (Alertmanager)
@@ -289,7 +297,3 @@ ssh -L 9093:localhost:9093 -L 8080:localhost:8080 user@your_server
 - **v3.0** — HTTPS + Let's Encrypt (требует домен)
 - **v4.0** — Terraform + Ansible (IaC)
 - **v5.0** — Kubernetes + Helm + ArgoCD
-
----
-
-> Проект создан в рамках изучения DevOps-практик: контейнеризация, автоматизация деплоя, observability и управление инфраструктурой.
