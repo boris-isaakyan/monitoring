@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>DevOps Portfolio Project</title>
+    <title>Portfolio Project</title>
     <style>
         * {
             margin: 0;
@@ -43,7 +43,6 @@
             font-size: 1.05em;
         }
 
-        /* Статус */
         .status {
             background: rgba(76, 175, 80, 0.3);
             padding: 15px 20px;
@@ -54,7 +53,6 @@
         .status h2 { font-size: 1.2em; margin-bottom: 4px; }
         .status p  { opacity: 0.85; font-size: 0.95em; }
 
-        /* Секции */
         .section-title {
             font-size: 1em;
             text-transform: uppercase;
@@ -63,7 +61,6 @@
             margin-bottom: 12px;
         }
 
-        /* Карточки мониторинга */
         .monitoring-grid {
             display: grid;
             grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
@@ -91,9 +88,9 @@
         .monitor-card .icon { font-size: 1.6em; }
         .monitor-card .name { font-weight: 600; font-size: 1em; }
         .monitor-card .desc { font-size: 0.82em; opacity: 0.75; }
-        .monitor-card .port { font-size: 0.78em; opacity: 0.55; margin-top: 2px; }
 
-        /* Стек технологий */
+        /* [ИЗМЕНЕНО] убран .port — сервисы теперь доступны без портов через /path */
+
         .tech-stack {
             display: grid;
             grid-template-columns: repeat(auto-fit, minmax(130px, 1fr));
@@ -108,7 +105,6 @@
             font-size: 0.9em;
         }
 
-        /* Разделитель */
         .divider {
             border: none;
             border-top: 1px solid rgba(255,255,255,0.2);
@@ -119,7 +115,7 @@
 <body>
     <div class="container">
 
-        <h1>🚀 DevOps Portfolio Project</h1>
+        <h1>🚀 Portfolio Project</h1>
         <p class="subtitle">Multi-container application with automated CI/CD pipeline and full observability stack</p>
 
         <div class="status">
@@ -127,32 +123,34 @@
             <p>All services are up and operational</p>
         </div>
 
-        <!-- Мониторинг -->
         <p class="section-title">Observability Stack</p>
         <div class="monitoring-grid">
-            <a class="monitor-card" href="http://localhost:3000" target="_blank">
+
+            <!-- [ИЗМЕНЕНО] href: localhost:3000 → /grafana (через nginx reverse proxy)
+                 Плейсхолдер __SERVER_HOST__ заменяется nginx sub_filter на реальный хост.
+                 Пользователь кликает и попадает на Grafana без знания IP сервера -->
+            <a class="monitor-card" href="http://__SERVER_HOST__/grafana" target="_blank">
                 <span class="icon">📊</span>
                 <span class="name">Grafana</span>
                 <span class="desc">Dashboards & visualization</span>
-                <span class="port">:3000</span>
             </a>
-            <a class="monitor-card" href="http://localhost:9090" target="_blank">
+
+            <!-- [ИЗМЕНЕНО] href: localhost:9090 → /prometheus (через nginx reverse proxy + basic auth)
+                 Prometheus защищён basic auth — браузер спросит логин/пароль из nginx_htpasswd -->
+            <a class="monitor-card" href="http://__SERVER_HOST__/prometheus" target="_blank">
                 <span class="icon">🔥</span>
                 <span class="name">Prometheus</span>
                 <span class="desc">Metrics & alerting rules</span>
-                <span class="port">:9090</span>
             </a>
-            <a class="monitor-card" href="http://localhost:9093" target="_blank">
-                <span class="icon">🔔</span>
-                <span class="name">Alertmanager</span>
-                <span class="desc">Alert routing & Telegram</span>
-                <span class="port">:9093</span>
-            </a>
+
+            <!-- [УДАЛЕНО] карточка Alertmanager — порт 9093 закрыт снаружи,
+                 доступ только через SSH-туннель для администратора.
+                 Публичная ссылка на него была бы нерабочей и вводила бы в заблуждение -->
+
         </div>
 
         <hr class="divider">
 
-        <!-- Стек -->
         <p class="section-title">Technology Stack</p>
         <div class="tech-stack">
             <div class="tech-item">🐋 Docker</div>
