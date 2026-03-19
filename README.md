@@ -1,7 +1,7 @@
-# Monitoring Stack
+# DevOps Monitoring Stack
 
 Production-ready мониторинг для Linux-хоста и Docker-контейнеров.
-Полный observability-стек одной командой — метрики, дашборды и Telegram-алерты из коробки
+Полный observability-стек одной командой — метрики, дашборды и Telegram-алерты из коробки.
 
 **Tech Stack:**
 `Docker Compose` · `Prometheus` · `Grafana` · `Alertmanager` · `Nginx` · `PostgreSQL` · `Node Exporter` · `cAdvisor` · `GitHub Actions`
@@ -12,7 +12,7 @@ Production-ready мониторинг для Linux-хоста и Docker-конт
 
 - Docker >= 24.0 + Docker Compose >= 2.20
 - Linux-хост (VPS или локальная машина)
-- Открыты только порты **80** и **22** (остальные сервисы доступны через Nginx reverse proxy)
+- Открыт только порт **80** (остальные сервисы доступны через Nginx reverse proxy)
 - Telegram Bot Token → [@BotFather](https://t.me/BotFather)
 - Telegram Chat ID → [@userinfobot](https://t.me/userinfobot)
 
@@ -20,28 +20,28 @@ Production-ready мониторинг для Linux-хоста и Docker-конт
 
 ## 🚀 Быстрый старт
 
-### Шаг 1 — Клонируй репозиторий
+### Шаг 1 — Клонирование репозиторий
 
 ```bash
 git clone https://github.com/ivanserneev-max/web-app.git
 cd web-app
 ```
 
-### Шаг 2 — Заполни переменные окружения
+### Шаг 2 — Заполнение переменных окружения
 
 ```bash
 cp .env.example .env
 nano .env
 ```
 
-Обязательно укажи `SERVER_HOST` — IP или домен твоего сервера:
+Обязательно указать `SERVER_HOST` — IP или домен твоего сервера:
 
 ```bash
 SERVER_HOST=your_server_ip   # например: 192.168.1.100 или monitoring.example.com
 # Локально: SERVER_HOST=localhost
 ```
 
-### Шаг 3 — Создай секреты
+### Шаг 3 — Создание секретов
 
 ```bash
 mkdir -p secrets
@@ -61,7 +61,7 @@ chmod 644 secrets/*   # контейнеры читают от своих пол
 chmod 700 secrets/    # папка закрыта снаружи
 ```
 
-### Шаг 4 — Запуск стека
+### Шаг 4 — Запусти стек
 
 ```bash
 chmod +x setup.sh
@@ -202,7 +202,7 @@ monitoring — все сервисы мониторинга     (internal: true,
 - Grafana — собственная аутентификация, проверка обновлений отключена
 - Resource reservations на все контейнеры
 
-> ⚠️ Текущая версия использует HTTP. Для production с реальными данными рекомендуется добавить домен и HTTPS (см. Roadmap v3.0).
+> ⚠️ Текущая версия использует HTTP. Для production с реальными данными рекомендуется добавить домен и HTTPS.
 
 ---
 
@@ -211,7 +211,7 @@ monitoring — все сервисы мониторинга     (internal: true,
 **Grafana недоступна (`502 Bad Gateway`)**
 
 ```bash
-# Убедись что контейнер grafana запущен
+# Убедиться, что контейнер grafana запущен
 docker compose ps | grep grafana
 # Если отсутствует — запусти
 docker compose up -d grafana
@@ -222,7 +222,7 @@ docker compose up -d grafana
 ```bash
 # Проверить, что nginx применил актуальный конфиг
 docker exec webapp_nginx nginx -T | grep "location /prometheus"
-# Проверить логи nginx
+# Проверить, логи nginx
 docker exec webapp_nginx cat /var/log/nginx/error.log
 ```
 
@@ -297,3 +297,5 @@ ssh -L 9093:localhost:9093 -L 8080:localhost:8080 user@your_server
 - **v3.0** — HTTPS + Let's Encrypt (требует домен)
 - **v4.0** — Terraform + Ansible (IaC)
 - **v5.0** — Kubernetes + Helm + ArgoCD
+
+---
