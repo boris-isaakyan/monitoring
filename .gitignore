@@ -15,11 +15,15 @@ data/
 .DS_Store
 Thumbs.db
 
-# Переменные окружения
+# Переменные окружения и Секреты
 .env
 .env.local
 .env.production
+secrets/
 
 # Временные файлы
 *.tmp
 *.bak
+
+# Grafana создаёт файлы при работе — не нужны в git
+grafana/data/
