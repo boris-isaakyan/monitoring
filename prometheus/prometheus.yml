@@ -1,30 +1,43 @@
-global:
-  scrape_interval: 15s  # Опрашивать exporters каждые 15 секунд
-  evaluation_interval: 15s  # Проверять правила алертов каждые 15 секунд
+# prometheus.yml - Главный конфигурационный файл для Prometheus
+# Определяет глобальные параметры, источники сбора метрик и правила алертинга
 
-# Где находится Alertmanager
+global:
+  scrape_interval: 30s # Опрашивать exporters каждые 30 секунд
+  evaluation_interval: 30s # Проверять правила алертов каждые 30 секунд
+  scrape_timeout: 10s # Таймаут одного scrape-запроса
+
+# Куда отправлять сработавшие алерты
 alerting:
   alertmanagers:
     - static_configs:
-        - targets: ['alertmanager:9093']
+        - targets:
+            - alertmanager:9093
+      timeout: 30s
 
 # Файлы с правилами алертов
 rule_files:
-  - '/etc/prometheus/alerts.yml'
+  - "/etc/prometheus/alerts.yml" # Путь внутри контейнера
 
 # Откуда Prometheus берёт метрики
 scrape_configs:
-  # Метрики Prometheus
-  - job_name: 'prometheus'
+  # Метрики Prometheus           # Метрики самого Prometheus
+  - job_name: prometheus
+    metrics_path: /prometheus/metrics
     static_configs:
-      - targets: ['localhost:9090']
+      - targets:
+          - localhost:9090
 
-  # Метрики хоста (CPU, RAM, disk)
-  - job_name: 'node-exporter'
+  - job_name: node-exporter # Метрики хоста (CPU, RAM, Disk, Network)
     static_configs:
-      - targets: ['node-exporter:9100']
+      - targets:
+          - node-exporter:9100
 
-  # Метрики Docker-контейнеров
-  - job_name: 'cadvisor'
+  - job_name: cadvisor # Метрики Docker-контейнеров
     static_configs:
-      - targets: ['cadvisor:8080']
+      - targets:
+          - cadvisor:8080
+
+  - job_name: alertmanager # Метрики Alertmanager (Позволяет алертить если Alertmanager сам упал)
+    static_configs:
+      - targets:
+          - alertmanager:9093
