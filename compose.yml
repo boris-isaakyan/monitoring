@@ -1,0 +1,21 @@
+# compose.yaml — Базовая конфигурация проекта
+# Запуск: docker compose up -d
+# Документация: https://docs.docker.com/compose/compose-file/
+
+services:
+  # NGINX (Reverse Proxy)
+  nginx:
+    image: nginx:1.25-alpine
+    container_name: ${COMPOSE_PROJECT_NAME:-webapp}_nginx
+    ports:
+      - "${NGINX_HTTP_PORT:-80}:80"
+    volumes:
+      - ./nginx/html:/usr/share/nginx/html:ro
+      - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./secrets/nginx_htpasswd:/etc/nginx/.htpasswd:ro
+    restart: unless-stopped
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
