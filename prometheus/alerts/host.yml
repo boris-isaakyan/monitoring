@@ -1,0 +1,75 @@
+# host.yml — Алерты для ресурсов хоста (Node Exporter)
+
+groups:
+  - name: host_alerts
+    interval: 20s
+    rules:
+      - alert: HighCPUUsage
+        expr: 100 - (avg by (instance) (irate(node_cpu_seconds_total{mode="idle"}[5m])) * 100) > 80
+        for: 2m
+        labels:
+          severity: warning
+          component: host
+        annotations:
+          summary: "Высокая загрузка CPU на {{ $labels.instance }}"
+          description: 'CPU > 80% в течение 5 минут. Текущее значение: {{ $value | printf "%.1f" }}%'
+
+      - alert: CriticalCPUUsage
+        expr: 100 - (avg by(instance) (irate(node_cpu_seconds_total{mode="idle"}[5m])) * 100) > 95
+        for: 2m
+        labels:
+          severity: critical
+          component: host
+        annotations:
+          summary: "Критическая загрузка CPU на {{ $labels.instance }}"
+          description: 'CPU > 95% в течение 2 минут. Текущее значение: {{ $value | printf "%.1f" }}%'
+
+      - alert: HighMemoryUsage
+        expr: (1 - (node_memory_MemAvailable_bytes / node_memory_MemTotal_bytes)) * 100 > 80
+        for: 30s
+        labels:
+          severity: warning
+          component: host
+        annotations:
+          summary: "Высокое использование RAM на {{ $labels.instance }}"
+          description: 'RAM > 80%. Текущее значение: {{ $value | printf "%.1f" }}%'
+
+      - alert: CriticalMemoryUsage
+        expr: (1 - (node_memory_MemAvailable_bytes / node_memory_MemTotal_bytes)) * 100 > 95
+        for: 2m
+        labels:
+          severity: critical
+          component: host
+        annotations:
+          summary: "Критическое использование RAM на {{ $labels.instance }}"
+          description: 'RAM > 95% в течение 2 минут. Текущее значение: {{ $value | printf "%.1f" }}%'
+
+      - alert: HighDiskUsage
+        expr: (1 - (node_filesystem_avail_bytes{mountpoint="/", fstype!~"tmpfs|overlay|aufs|squashfs"} / node_filesystem_size_bytes{mountpoint="/", fstype!~"tmpfs|overlay|aufs|squashfs"})) * 100 > 80
+        for: 5m
+        labels:
+          severity: warning
+          component: host
+        annotations:
+          summary: "Высокая загрузка диска на {{ $labels.instance }}"
+          description: 'Диск {{ $labels.mountpoint }} > 80%. Текущее значение: {{ $value | printf "%.1f" }}%'
+
+      - alert: CriticalDiskUsage
+        expr: (1 - (node_filesystem_avail_bytes{mountpoint="/", fstype!~"tmpfs|overlay|aufs|squashfs"} / node_filesystem_size_bytes{mountpoint="/", fstype!~"tmpfs|overlay|aufs|squashfs"})) * 100 > 95
+        for: 2m
+        labels:
+          severity: critical
+          component: host
+        annotations:
+          summary: "Критическая загрузка диска на {{ $labels.instance }}"
+          description: 'Диск {{ $labels.mountpoint }} > 95%. Текущее значение: {{ $value | printf "%.1f" }}%'
+
+      - alert: NodeExporterDown
+        expr: up{job="node-exporter"} == 0
+        for: 1m
+        labels:
+          severity: critical
+          component: monitoring
+        annotations:
+          summary: "Node Exporter недоступен"
+          description: "Prometheus не получает метрики хоста более 1 минуты"
