@@ -12,16 +12,18 @@ alerting:
     - static_configs:
         - targets:
             - alertmanager:9093
+      path_prefix: /alertmanager/
       timeout: 30s
 
-# Файлы с правилами алертов
+# Правила алертов разделены по файлам
 rule_files:
-  - "/etc/prometheus/alerts.yml" # Путь внутри контейнера
+  - "/etc/prometheus/alerts/host.yml"
+  - "/etc/prometheus/alerts/container.yml"
+  - "/etc/prometheus/alerts/service.yml"
 
 # Откуда Prometheus берёт метрики
 scrape_configs:
-  # Метрики Prometheus           # Метрики самого Prometheus
-  - job_name: prometheus
+  - job_name: prometheus # Метрики самого Prometheus
     metrics_path: /prometheus/metrics
     static_configs:
       - targets:
@@ -38,6 +40,7 @@ scrape_configs:
           - cadvisor:8080
 
   - job_name: alertmanager # Метрики Alertmanager (Позволяет алертить если Alertmanager сам упал)
+    metrics_path: /alertmanager/metrics
     static_configs:
       - targets:
           - alertmanager:9093
