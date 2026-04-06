@@ -1,161 +1,209 @@
-# .github/workflows/deploy.yml
+# Этот файл используется для деплоя на личный сервер.
+# Контрибьюторам НЕ нужно настраивать этот pipeline.
 #
-# CI/CD: автодеплой на production сервер при пуше в master
-#
-# НЕОБХОДИМЫЕ GitHub Secrets (Settings → Secrets → Actions):
-#   SSH_HOST               — IP сервера
-#   SSH_USER               — пользователь для SSH (не root!)
-#   SSH_PRIVATE_KEY        — приватный SSH-ключ
-#   POSTGRES_USER          — имя пользователя PostgreSQL
-#   POSTGRES_DB            — имя базы данных
-#   POSTGRES_PASSWORD      — пароль PostgreSQL
-#   GRAFANA_ADMIN_USER     — логин администратора Grafana
-#   GRAFANA_ADMIN_PASSWORD — пароль администратора Grafana
-#   TELEGRAM_BOT_TOKEN     — токен Telegram-бота
-#   TELEGRAM_CHAT_ID       — ID чата для алертов
+# Для локальной разработки используйте:
+#   docker compose -f compose.yml -f compose.monitoring.yml up -d
 
 name: Deploy to Production
 
 on:
   push:
     branches:
-      - master              # Деплой только при пуше в master
+      - master # Деплой только при пуше в master
+  workflow_dispatch: # Ручной запуск из UI GitHub Actions
 
-# Переменные окружения (будут доступны во всех шагах)
+# Переменные окружения (доступны во всех шагах)
 env:
-  DEPLOY_PATH: /home/${{ secrets.SSH_USER }}/web-app      
+  DEPLOY_PATH: /home/${{ secrets.SSH_USER }}/web-app
 
 jobs:
   deploy:
-    runs-on: ubuntu-latest  # GitHub предоставляет чистую Ubuntu-машину для каждого запуска
+    runs-on: ubuntu-latest
+    environment: production # GitHub Environment для защиты деплоя
 
     steps:
-
-      # Шаг 1: Скачиваем код на runner
+      # Шаг 1: Checkout
       - name: Checkout code
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 1 # Ускоряем checkout — полная история не нужна
 
-      # Шаг 2: Проверяем синтаксис docker-compose.yml
-      - name: Validate docker-compose config
+      # Шаг 2: Валидация Compose конфигов
+      - name: Validate compose.yml
         run: |
-          # Создаём временный .env — compose требует переменные для валидации
+          # Создаём временный .env для валидации
           cat > .env << 'EOF'
           COMPOSE_PROJECT_NAME=webapp
+          SERVER_HOST=localhost
           NGINX_HTTP_PORT=80
           POSTGRES_USER=test
           POSTGRES_DB=test
           GRAFANA_ADMIN_USER=admin
-          GRAFANA_USERS_ALLOW_SIGN_UP=false
           GRAFANA_PORT=3000
           PROMETHEUS_PORT=9090
           NODE_EXPORTER_PORT=9100
           CADVISOR_PORT=8081
-          ALERTMANAGER_PORT=9093
           ADMINER_PORT=8080
-          NETWORK_SUBNET=172.20.0.0/24
           EOF
-
-          # Создаём заглушки секретов — только для проверки синтаксиса
+          # Создаём заглушки секретов (только для проверки синтаксиса)
           mkdir -p secrets
-          for f in postgres_password grafana_admin_password telegram_token telegram_chat_id; do
+          for f in postgres_password grafana_admin_password telegram_token telegram_chat_id nginx_htpasswd; do
             echo "dummy" > secrets/$f
           done
 
-          # --quiet: выводит только ошибки, без дампа всего конфига
-          docker compose config --quiet
-          echo "docker-compose.yml синтаксически корректен"
+          # Валидируем базовую конфигурацию
+          docker compose -f compose.yml config --quiet
+          echo "✅ compose.yml валиден"
 
-      # Шаг 3: Деплой на сервер через SSH
+      - name: Validate compose.monitoring.yml
+        run: |
+          docker compose -f compose.yml -f compose.monitoring.yml config --quiet
+          echo "✅ compose.monitoring.yml валиден"
+
+      - name: Validate compose.debug.yml
+        run: |
+          docker compose -f compose.yml -f compose.debug.yml config --quiet
+          echo "✅ compose.debug.yml валиден"
+
+      # Шаг 3: Валидация Prometheus и Alertmanager
+      - name: Validate Prometheus config
+        run: |
+          docker run --rm \
+            -v $(pwd)/prometheus:/etc/prometheus \
+            prom/prometheus:v2.45.0 \
+            --config.file=/etc/prometheus/prometheus.yml --config.check
+          echo "✅ Prometheus config валиден"
+
+      - name: Validate Alertmanager config
+        run: |
+          docker run --rm \
+            -v $(pwd)/alertmanager:/etc/alertmanager \
+            prom/alertmanager:v0.31.0 \
+            --config.file=/etc/alertmanager/alertmanager.yml --config.check
+          echo "✅ Alertmanager config валиден"
+
+      # Шаг 4: Валидация Nginx конфига
+      - name: Validate Nginx config
+        run: |
+          docker run --rm \
+            -v $(pwd)/nginx/nginx.conf:/etc/nginx/nginx.conf:ro \
+            nginx:1.25-alpine \
+            nginx -t
+          echo "✅ Nginx config валиден"
+
+      # Шаг 5: Деплой на сервер через SSH
       - name: Deploy via SSH
-        uses: appleboy/ssh-action@v1.0.3  # Пинируем версию — не берём @master
+        uses: appleboy/ssh-action@v1.0.3
         with:
           host: ${{ secrets.SSH_HOST }}
           username: ${{ secrets.SSH_USER }}
           key: ${{ secrets.SSH_PRIVATE_KEY }}
-          # Передаём секреты как переменные окружения SSH-сессии, так значения не попадают в логи GitHub Actions
+          # Передаём секреты как переменные окружения SSH-сессии
+          # Значения не попадают в логи GitHub Actions
           envs: DEPLOY_POSTGRES_USER,DEPLOY_POSTGRES_DB,DEPLOY_POSTGRES_PASSWORD,DEPLOY_GRAFANA_USER,DEPLOY_GRAFANA_PASSWORD,DEPLOY_TELEGRAM_TOKEN,DEPLOY_TELEGRAM_CHAT_ID
           script: |
-            # оставнока скрипта при ошибке, , остановка, если переменная не определена, ошибки в пайпах не игнорируются
+            # Строгий режим: остановка при ошибке, проверка переменных
             set -euo pipefail
-            echo "Деплой начат: $(date '+%Y-%m-%d %H:%M:%S')"
+
+            echo "🚀 Деплой начат: $(date '+%Y-%m-%d %H:%M:%S')"
+            echo "📦 Commit: $(git -C ${{ env.DEPLOY_PATH }} rev-parse --short HEAD 2>/dev/null || echo 'new')"
 
             # Переходим в папку проекта
             cd ${{ env.DEPLOY_PATH }}
 
-            # Получаем свежий код из репозитория
+            # Получаем свежий код
             git pull origin master
-            echo "Код обновлён до: $(git rev-parse --short HEAD)"
+            echo "✅ Код обновлён до: $(git rev-parse --short HEAD)"
 
-            # Создаём папку для секретов если её нет
+            # Создаём папку для секретов
             mkdir -p secrets
 
-            # Записываем секреты из переменных окружения в файлы
-            # printf '%s' — без символа новой строки в конце файла
+            # Записываем секреты (printf без newline в конце)
             printf '%s' "$DEPLOY_POSTGRES_PASSWORD" > secrets/postgres_password
             printf '%s' "$DEPLOY_GRAFANA_PASSWORD"  > secrets/grafana_admin_password
             printf '%s' "$DEPLOY_TELEGRAM_TOKEN"    > secrets/telegram_token
             printf '%s' "$DEPLOY_TELEGRAM_CHAT_ID"  > secrets/telegram_chat_id
 
-            # Права 600 — только владелец может читать файлы с паролями
-            chmod 600 secrets/*
-            echo "Секреты обновлены"
+            # Генерируем htpasswd (всегда перегенерируем при деплое)
+            docker run --rm httpd:alpine \
+              htpasswd -nbB "$DEPLOY_GRAFANA_USER" "$DEPLOY_GRAFANA_PASSWORD" \
+              > secrets/nginx_htpasswd
+            echo "✅ nginx_htpasswd обновлён"
 
-            # Создаём .env файл
-            # > перезаписывает файл целиком при каждом деплое, гарантирует что на сервере всегда актуальная конфигурация
+            # Права 600 — только владелец читает
+            chmod 600 secrets/*
+            echo "✅ Секреты обновлены"
+
+            # Создаём .env (перезаписываем полностью для актуальности)
             cat > .env << EOF
             COMPOSE_PROJECT_NAME=webapp
+            SERVER_HOST=${{ secrets.SSH_HOST }}
             NGINX_HTTP_PORT=80
             POSTGRES_USER=${DEPLOY_POSTGRES_USER}
             POSTGRES_DB=${DEPLOY_POSTGRES_DB}
             GRAFANA_ADMIN_USER=${DEPLOY_GRAFANA_USER}
-            GRAFANA_USERS_ALLOW_SIGN_UP=false
             GRAFANA_PORT=3000
             PROMETHEUS_PORT=9090
             NODE_EXPORTER_PORT=9100
             CADVISOR_PORT=8081
-            ALERTMANAGER_PORT=9093
             ADMINER_PORT=8080
-            NETWORK_SUBNET=172.20.0.0/24
             EOF
-            echo ".env обновлён"
+            echo "✅ .env обновлён"
 
             # Скачиваем обновлённые образы
-            docker compose pull
-            echo "Образы обновлены"
+            docker compose -f compose.yml -f compose.monitoring.yml pull
+            echo "✅ Образы обновлены"
 
-            # Запускаем контейнеры
-            # --remove-orphans: удаляет контейнеры сервисов, которые были удалены из docker-compose.yml
-            docker compose up -d --remove-orphans
-            echo "Контейнеры запущены"
+            # Запускаем контейнеры (только core + monitoring, без debug)
+            docker compose -f compose.yml -f compose.monitoring.yml up -d --remove-orphans
+            echo "✅ Контейнеры запущены"
 
-            # Ждём готовности сервисов, 60 секунд — перекрывает самый долгий start_period (postgres = 30s)
-            echo "Жду готовности сервисов (60 сек)..."
+            # Ждём готовности сервисов (перекрывает start_period)
+            echo "⏳ Жду готовности сервисов (60 сек)..."
             sleep 60
 
-            # Проверяем что все сервисы healthy
-            if docker compose ps | grep -q "unhealthy"; then
-              echo "Есть проблемные контейнеры:"
-              docker compose ps
-              exit 1    # Завершаем с ошибкой — GitHub Actions пометит деплой как failed
+            # Проверяем статус контейнеров
+            if docker compose -f compose.yml -f compose.monitoring.yml ps | grep -q "unhealthy"; then
+              echo "❌ Есть проблемные контейнеры:"
+              docker compose -f compose.yml -f compose.monitoring.yml ps
+              exit 1
             fi
 
-            echo "Все сервисы работают"
-            docker compose ps
+            echo "✅ Все сервисы работают"
+            docker compose -f compose.yml -f compose.monitoring.yml ps
 
-            # Очищаем dangling образы, которые остались после docker compose pull
+            # Очищаем dangling образы
             docker image prune -f
-            echo "Устаревшие образы удалены"
+            echo "✅ Устаревшие образы удалены"
+
+            # Отправляем уведомление в Telegram об успешном деплое
+            if [ -n "$DEPLOY_TELEGRAM_TOKEN" ] && [ -n "$DEPLOY_TELEGRAM_CHAT_ID" ]; then
+              curl -s -X POST "https://api.telegram.org/bot${DEPLOY_TELEGRAM_TOKEN}/sendMessage" \
+                -d "chat_id=${DEPLOY_TELEGRAM_CHAT_ID}" \
+                -d "text=✅ Деплой успешен%0ACommit: $(git rev-parse --short HEAD)%0AВремя: $(date '+%Y-%m-%d %H:%M:%S')" \
+                > /dev/null || true
+            fi
 
             echo ""
-            echo "Деплой завершён: $(date '+%Y-%m-%d %H:%M:%S')"
+            echo "🎉 Деплой завершён: $(date '+%Y-%m-%d %H:%M:%S')"
 
-        # Маппинг: GitHub Secrets → переменные окружения SSH-сессии
-        # Префикс DEPLOY_ чтобы не конфликтовать с системными переменными сервера
+        # Маппинг GitHub Secrets → переменные окружения SSH-сессии
         env:
-          DEPLOY_POSTGRES_USER:     ${{ secrets.POSTGRES_USER }}
-          DEPLOY_POSTGRES_DB:       ${{ secrets.POSTGRES_DB }}
+          DEPLOY_POSTGRES_USER: ${{ secrets.POSTGRES_USER }}
+          DEPLOY_POSTGRES_DB: ${{ secrets.POSTGRES_DB }}
           DEPLOY_POSTGRES_PASSWORD: ${{ secrets.POSTGRES_PASSWORD }}
-          DEPLOY_GRAFANA_USER:      ${{ secrets.GRAFANA_ADMIN_USER }}
-          DEPLOY_GRAFANA_PASSWORD:  ${{ secrets.GRAFANA_ADMIN_PASSWORD }}
-          DEPLOY_TELEGRAM_TOKEN:    ${{ secrets.TELEGRAM_BOT_TOKEN }}
-          DEPLOY_TELEGRAM_CHAT_ID:  ${{ secrets.TELEGRAM_CHAT_ID }}
+          DEPLOY_GRAFANA_USER: ${{ secrets.GRAFANA_ADMIN_USER }}
+          DEPLOY_GRAFANA_PASSWORD: ${{ secrets.GRAFANA_ADMIN_PASSWORD }}
+          DEPLOY_TELEGRAM_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          DEPLOY_TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+
+      # Шаг 6: Уведомление о статусе деплоя
+      - name: Notify deployment status
+        if: always() # Запускается всегда (success/failure)
+        run: |
+          echo "Статус деплоя: ${{ job.status }}"
+          if [ "${{ job.status }}" == "success" ]; then
+            echo "🎉 Деплой успешен!"
+          else
+            echo "❌ Деплой провалился! Проверь логи."
+          fi
