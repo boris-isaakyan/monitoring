@@ -1,5 +1,6 @@
 # compose.monitoring.yaml — Observability стек
 # Запуск: docker compose -f compose.yaml -f compose.monitoring.yaml up -d
+# Или через profile: docker compose --profile monitoring up -d
 
 services:
   # PROMETHEUS
@@ -17,7 +18,39 @@ services:
       - ./prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
       - ./prometheus/alerts:/etc/prometheus/alerts:ro
       - prometheus-data:/prometheus
+    networks:
+      - internal
     restart: unless-stopped
+    user: "65534:65534"
+    read_only: true
+    tmpfs:
+      - /tmp
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "wget",
+          "-q",
+          "-O",
+          "/dev/null",
+          "http://127.0.0.1:9090/prometheus/-/healthy",
+        ]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
+    deploy:
+      resources:
+        reservations:
+          cpus: "0.25"
+          memory: 256M
+        limits:
+          cpus: "0.5"
+          memory: 512M
     logging:
       driver: json-file
       options:
@@ -35,6 +68,8 @@ services:
       GF_ANALYTICS_CHECK_FOR_UPDATES: "false"
       GF_ANALYTICS_CHECK_FOR_PLUGIN_UPDATES: "false"
       GF_PATHS_PROVISIONING: /etc/grafana/provisioning
+      GF_PLUGINS_ALLOW_LOADING_UNSIGNED_PLUGINS: ""
+      GF_PLUGIN_SKIP_PUBLIC_KEY_DOWNLOAD: "true"
       GF_SERVER_ROOT_URL: "%(protocol)s://%(domain)s/grafana/"
       GF_SERVER_SERVE_FROM_SUB_PATH: "true"
       GF_SERVER_DOMAIN: "${SERVER_HOST:-localhost}"
@@ -46,7 +81,43 @@ services:
     depends_on:
       prometheus:
         condition: service_healthy
+    networks:
+      - internal
     restart: unless-stopped
+    user: "472:472"
+    read_only: true
+    tmpfs:
+      - /tmp
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    cap_add:
+      - CHOWN
+      - SETUID
+      - SETGID
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "wget",
+          "-q",
+          "-O",
+          "/dev/null",
+          "http://127.0.0.1:3000/api/health",
+        ]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
+    deploy:
+      resources:
+        reservations:
+          cpus: "0.1"
+          memory: 128M
+        limits:
+          cpus: "0.25"
+          memory: 256M
     logging:
       driver: json-file
       options:
@@ -64,7 +135,39 @@ services:
       - /:/host:ro,rslave
       - /run/udev:/host/run/udev:ro
       - /run/udev/data:/run/udev/data:ro
+    networks:
+      - internal
     restart: unless-stopped
+    user: "65534:65534"
+    read_only: true
+    tmpfs:
+      - /tmp
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "wget",
+          "-q",
+          "-O",
+          "/dev/null",
+          "http://127.0.0.1:9100/metrics",
+        ]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+    deploy:
+      resources:
+        reservations:
+          cpus: "0.05"
+          memory: 32M
+        limits:
+          cpus: "0.1"
+          memory: 64M
     logging:
       driver: json-file
       options:
@@ -86,7 +189,23 @@ services:
       - /sys:/sys:ro
       - /var/lib/docker/:/var/lib/docker:ro
       - /dev/disk/:/dev/disk:ro
+    networks:
+      - internal
     restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1:8080/"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
+    deploy:
+      resources:
+        reservations:
+          cpus: "0.05"
+          memory: 64M
+        limits:
+          cpus: "0.15"
+          memory: 128M
     logging:
       driver: json-file
       options:
@@ -108,7 +227,32 @@ services:
       - alertmanager-data:/alertmanager
       - ./secrets/telegram_token:/run/secrets/telegram_token:ro
       - ./secrets/telegram_chat_id:/run/secrets/telegram_chat_id:ro
+    networks:
+      - internal
+      - public
     restart: unless-stopped
+    user: "65534:65534"
+    read_only: true
+    tmpfs:
+      - /tmp
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1:9093/"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
+    deploy:
+      resources:
+        reservations:
+          cpus: "0.05"
+          memory: 32M
+        limits:
+          cpus: "0.1"
+          memory: 64M
     logging:
       driver: json-file
       options:
