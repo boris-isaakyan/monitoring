@@ -1,0 +1,121 @@
+# compose.monitoring.yaml — Observability стек
+# Запуск: docker compose -f compose.yaml -f compose.monitoring.yaml up -d
+
+services:
+  # PROMETHEUS
+  prometheus:
+    image: prom/prometheus:v2.45.0
+    container_name: ${COMPOSE_PROJECT_NAME:-webapp}_prometheus
+    command:
+      - "--config.file=/etc/prometheus/prometheus.yml"
+      - "--storage.tsdb.path=/prometheus"
+      - "--storage.tsdb.retention.time=15d"
+      - "--web.enable-lifecycle"
+      - "--web.external-url=/prometheus/"
+      - "--web.route-prefix=/prometheus/"
+    volumes:
+      - ./prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ./prometheus/alerts:/etc/prometheus/alerts:ro
+      - prometheus-data:/prometheus
+    restart: unless-stopped
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  # GRAFANA
+  grafana:
+    image: grafana/grafana:10.2.2
+    container_name: ${COMPOSE_PROJECT_NAME:-webapp}_grafana
+    environment:
+      GF_SECURITY_ADMIN_USER: ${GRAFANA_ADMIN_USER}
+      GF_SECURITY_ADMIN_PASSWORD_FILE: /run/secrets/grafana_admin_password
+      GF_ANALYTICS_REPORTING_ENABLED: "false"
+      GF_ANALYTICS_CHECK_FOR_UPDATES: "false"
+      GF_ANALYTICS_CHECK_FOR_PLUGIN_UPDATES: "false"
+      GF_PATHS_PROVISIONING: /etc/grafana/provisioning
+      GF_SERVER_ROOT_URL: "%(protocol)s://%(domain)s/grafana/"
+      GF_SERVER_SERVE_FROM_SUB_PATH: "true"
+      GF_SERVER_DOMAIN: "${SERVER_HOST:-localhost}"
+    volumes:
+      - grafana-data:/var/lib/grafana
+      - ./grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./grafana/dashboards:/etc/grafana/dashboards:ro
+      - ./secrets/grafana_admin_password:/run/secrets/grafana_admin_password:ro
+    depends_on:
+      prometheus:
+        condition: service_healthy
+    restart: unless-stopped
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  # NODE EXPORTER
+  node-exporter:
+    image: prom/node-exporter:v1.6.1
+    container_name: ${COMPOSE_PROJECT_NAME:-webapp}_node-exporter
+    command:
+      - "--path.rootfs=/host"
+      - "--collector.filesystem.mount-points-exclude=^/(sys|proc|dev|host|etc)($$|/)"
+    volumes:
+      - /:/host:ro,rslave
+      - /run/udev:/host/run/udev:ro
+      - /run/udev/data:/run/udev/data:ro
+    restart: unless-stopped
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  # CADVISOR
+  cadvisor:
+    image: ghcr.io/google/cadvisor:0.56.2
+    container_name: ${COMPOSE_PROJECT_NAME:-webapp}_cadvisor
+    privileged: true
+    command:
+      - "--docker_only"
+      - "--housekeeping_interval=30s"
+      - "--store_container_labels=true"
+    volumes:
+      - /:/rootfs:ro
+      - /var/run:/var/run:ro
+      - /sys:/sys:ro
+      - /var/lib/docker/:/var/lib/docker:ro
+      - /dev/disk/:/dev/disk:ro
+    restart: unless-stopped
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  # ALERTMANAGER
+  alertmanager:
+    image: prom/alertmanager:v0.31.0
+    container_name: ${COMPOSE_PROJECT_NAME:-webapp}_alertmanager
+    command:
+      - "--config.file=/etc/alertmanager/alertmanager.yml"
+      - "--storage.path=/alertmanager"
+      - "--cluster.listen-address="
+      - "--web.external-url=http://${SERVER_HOST:-localhost}/alertmanager/"
+      - "--web.route-prefix=/alertmanager/"
+    volumes:
+      - ./alertmanager/alertmanager.yml:/etc/alertmanager/alertmanager.yml:ro
+      - alertmanager-data:/alertmanager
+      - ./secrets/telegram_token:/run/secrets/telegram_token:ro
+      - ./secrets/telegram_chat_id:/run/secrets/telegram_chat_id:ro
+    restart: unless-stopped
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+volumes:
+  prometheus-data:
+  grafana-data:
+  alertmanager-data:

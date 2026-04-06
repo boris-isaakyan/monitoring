@@ -1,0 +1,44 @@
+ # compose.debug.yaml — Инструменты для отладки
+ # Запуск: docker compose -f compose.yml -f compose.debug.yml --profile debug up -d
+
+ services:
+   # POSTGRESQL (только для разработки)
+   postgres:
+     image: postgres:15-alpine
+     container_name: ${COMPOSE_PROJECT_NAME:-webapp}_db
+     profiles:
+       - debug
+     environment:
+       POSTGRES_USER: ${POSTGRES_USER}
+       POSTGRES_DB: ${POSTGRES_DB}
+       POSTGRES_PASSWORD_FILE: /run/secrets/postgres_password
+     volumes:
+       - postgres-data:/var/lib/postgresql/data
+       - ./secrets/postgres_password:/run/secrets/postgres_password:ro
+     restart: unless-stopped
+     logging:
+       driver: json-file
+       options:
+         max-size: "10m"
+         max-file: "3"
+
+   # ADMINER (веб-интерфейс для БД)
+   adminer:
+     image: adminer:4.8.1
+     container_name: ${COMPOSE_PROJECT_NAME:-webapp}_adminer
+     profiles:
+       - debug
+     ports:
+       - "${ADMINER_PORT:-8080}:8080"
+     depends_on:
+       postgres:
+         condition: service_healthy
+     restart: unless-stopped
+     logging:
+       driver: json-file
+       options:
+         max-size: "10m"
+         max-file: "3"
+
+ volumes:
+   postgres-data:
