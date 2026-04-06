@@ -1,0 +1,59 @@
+# ci-validate.yml — Валидация конфигураций при PR и push в master
+name: CI Validate
+
+on:
+  pull_request:
+    branches:
+      - master
+  push:
+    branches:
+      - master
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Create dummy secrets
+        run: |
+          mkdir -p secrets
+          for f in postgres_password grafana_admin_password telegram_token telegram_chat_id nginx_htpasswd; do
+            echo "dummy" > secrets/$f
+          done
+
+      - name: Create .env
+        run: |
+          cp .env.example .env
+          echo "SERVER_HOST=localhost" >> .env
+
+      - name: Validate compose.yml
+        run: docker compose -f compose.yml config --quiet
+
+      - name: Validate compose.monitoring.yml
+        run: docker compose -f compose.yml -f compose.monitoring.yml config --quiet
+
+      - name: Validate compose.debug.yml
+        run: docker compose -f compose.yml -f compose.debug.yml config --quiet
+
+      - name: Validate Prometheus config
+        run: |
+          docker run --rm \
+            -v $(pwd)/prometheus:/etc/prometheus \
+            prom/prometheus:v2.45.0 \
+            --config.file=/etc/prometheus/prometheus.yml --config.check
+
+      - name: Validate Alertmanager config
+        run: |
+          docker run --rm \
+            -v $(pwd)/alertmanager:/etc/alertmanager \
+            prom/alertmanager:v0.31.0 \
+            --config.file=/etc/alertmanager/alertmanager.yml --config.check
+
+      - name: Validate Nginx config
+        run: |
+          docker run --rm \
+            -v $(pwd)/nginx/nginx.conf:/etc/nginx/nginx.conf:ro \
+            nginx:1.25-alpine nginx -t
