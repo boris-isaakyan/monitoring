@@ -4,6 +4,10 @@ datasources:
   - name: Prometheus
     type: prometheus
     access: proxy
-    url: http://prometheus:9090/prometheus # имя сервиса из docker-compose
+    url: http://prometheus:9090/prometheus
     isDefault: true
-    editable: false # запрещаем менять через UI — только через код
+    editable: false
+    jsonData:
+      timeRange:
+        from: now-1h
+        to: now
