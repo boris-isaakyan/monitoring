@@ -43,7 +43,7 @@ jobs:
           docker run --rm \
             -v $(pwd)/prometheus:/etc/prometheus \
             prom/prometheus:v2.45.0 \
-            --config.file=/etc/prometheus/prometheus.yml --config.check
+            promtool check config /etc/prometheus/prometheus.yml
 
       - name: Validate Alertmanager config
         run: |
