@@ -115,8 +115,9 @@ jobs:
             cd ${{ env.DEPLOY_PATH }}
 
             # Получаем свежий код
-            git pull origin master
-            echo "✅ Код обновлён до: $(git rev-parse --short HEAD)"
+            git fetch origin master
+            git reset --hard origin/master
+            echo "✅ Код синхронизирован с origin/master: $(git rev-parse --short HEAD)"
 
             # Создаём папку для секретов
             mkdir -p secrets
