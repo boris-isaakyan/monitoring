@@ -1,301 +1,189 @@
-# DevOps Monitoring Stack
+# Monitoring Stack
 
-Production-ready мониторинг для Linux-хоста и Docker-контейнеров.
-Полный observability-стек одной командой — метрики, дашборды и Telegram-алерты из коробки.
+> Production-ready observability для Linux-хоста и Docker-контейнеров.  
+> Автоматизированный CI/CD, network segmentation, container hardening из коробки.
 
-**Tech Stack:**
-`Docker Compose` · `Prometheus` · `Grafana` · `Alertmanager` · `Nginx` · `PostgreSQL` · `Node Exporter` · `cAdvisor` · `GitHub Actions`
-
----
-
-## 📋 Prerequisites
-
-- Docker >= 24.0 + Docker Compose >= 2.20
-- Linux-хост (VPS или локальная машина)
-- Открыт только порт **80** (остальные сервисы доступны через Nginx reverse proxy)
-- Telegram Bot Token → [@BotFather](https://t.me/BotFather)
-- Telegram Chat ID → [@userinfobot](https://t.me/userinfobot)
+[![Docker](https://img.shields.io/badge/Docker-2496ED?style=flat&logo=docker&logoColor=white)](https://www.docker.com/)
+[![GitHub Actions](https://img.shields.io/badge/GitHub_Actions-2088FF?style=flat&logo=github-actions&logoColor=white)](https://github.com/features/actions)
+[![Prometheus](https://img.shields.io/badge/Prometheus-E6522C?style=flat&logo=prometheus&logoColor=white)](https://prometheus.io/)
+[![Grafana](https://img.shields.io/badge/Grafana-F46800?style=flat&logo=grafana&logoColor=white)](https://grafana.com/)
 
 ---
 
-## 🚀 Быстрый старт
+## Что внутри
 
-### Шаг 1 — Клонирование репозиторий
+- **Layered Compose** — core / monitoring / debug через override-файлы
+- **Network isolation** — public (nginx + alertmanager egress) и internal (все сервисы)
+- **15+ alert rules** — CPU, RAM, Disk, CrashLoop, ServiceDown → Telegram
+- **Container hardening** — read_only, cap_drop: ALL, non-root users, secrets через файлы
+- **CI validation** — все конфиги проверяются на PR до попадания на сервер
 
-```bash
-git clone https://github.com/boris-isaakyan/web-app.git
-cd web-app
+## Требования
+
+- Docker 27.0+ (рекомендуется 29.0+)
+- Docker Compose v2.20+
+- Git 2.30+
+
+Проверено на Ubuntu 20.04 (Docker 28.1) и Ubuntu 24.04 (Docker 29.1).
+
+## Стек
+
+|                   | Технология         | Версия |
+| ----------------- | ------------------ | ------ |
+| Reverse proxy     | Nginx Alpine       | 1.25   |
+| Metrics           | Prometheus         | 2.45   |
+| Dashboards        | Grafana            | 10.2   |
+| Host metrics      | Node Exporter      | 1.6    |
+| Container metrics | cAdvisor (ghcr.io) | 0.56.2 |
+| Alerting          | Alertmanager       | 0.31   |
+| CI/CD             | GitHub Actions     | —      |
+
+## Архитектура
+
+```
+Internet
+    │
+    ▼
+┌──────────────────────────────────────────┐
+│  public network                          │
+│  ┌───────────────────────────────────┐   │
+│  │  Nginx :80  (reverse proxy)       │   │
+│  └──────────────┬────────────────────┘   │
+│  ┌──────────────────────────────────┐    │
+│  │  Alertmanager (egress only)      │    │
+│  │  → api.telegram.org              │    │
+│  └──────────────────────────────────┘    │
+└──────────────────┬───────────────────────┘
+                   │ proxy_pass
+┌──────────────────▼───────────────────────┐
+│  internal network  (no egress)           │
+│                                          │
+│  Prometheus   Grafana   Alertmanager     │
+│  Node Exporter          cAdvisor         │
+└──────────────────────────────────────────┘
 ```
 
-### Шаг 2 — Заполнение переменных окружения
+Nginx — единственная точка входа. Prometheus и Alertmanager защищены Basic Auth.  
+Alertmanager подключён к обеим сетям: internal для связи с Prometheus, public для исходящих запросов к Telegram API. Порты не публикуются — снаружи недоступен.
+
+## Быстрый старт
 
 ```bash
+git clone https://github.com/boris-isaakyan/web-app.git && cd web-app
+
+# 1. Окружение
 cp .env.example .env
-nano .env
-```
 
-Обязательно указать `SERVER_HOST` — IP или домен твоего сервера:
-
-```bash
-SERVER_HOST=your_server_ip   # например: 192.168.1.100 или monitoring.example.com
-# Локально: SERVER_HOST=localhost
-```
-
-### Шаг 3 — Создание секретов
-
-```bash
+# 2. Секреты
 mkdir -p secrets
-
 echo "your_postgres_password"   > secrets/postgres_password
 echo "your_grafana_password"    > secrets/grafana_admin_password
 echo "your_telegram_bot_token"  > secrets/telegram_token
 echo "your_telegram_chat_id"    > secrets/telegram_chat_id
+docker run --rm httpd:alpine htpasswd -nbB admin grafana_pass > secrets/nginx_htpasswd
+chmod 600 secrets/*
 
-# Пароль для доступа к Prometheus через браузер (basic auth)
-# Требует Docker — ничего дополнительно устанавливать не нужно
-docker run --rm httpd:alpine htpasswd -nbB admin your_prometheus_password \
-  > secrets/nginx_htpasswd
-
-# Права на файлы
-chmod 644 secrets/*   # контейнеры читают от своих пользователей
-chmod 700 secrets/    # папка закрыта снаружи
+# 3. Запуск
+docker compose -f compose.yml -f compose.monitoring.yml up -d
 ```
 
-### Шаг 4 — Запусти стек
+| Сервис          | URL                            |
+| --------------- | ------------------------------ |
+| Главная         | http://localhost               |
+| Grafana         | http://localhost/grafana/      |
+| Prometheus      | http://localhost/prometheus/   |
+| Alertmanager    | http://localhost/alertmanager/ |
+| Adminer (debug) | http://localhost:8080          |
+
+## Compose-профили
 
 ```bash
-chmod +x setup.sh
-./setup.sh
+# Production (core + observability)
+docker compose -f compose.yml -f compose.monitoring.yml up -d
+
+# Разработка (+ PostgreSQL и Adminer)
+docker compose -f compose.yml -f compose.monitoring.yml -f compose.debug.yml --profile debug up -d
+
+# Только nginx
+docker compose -f compose.yml up -d
 ```
 
-Скрипт проверит зависимости, секреты, запустит все сервисы и выведет итоговые URLs.
+Файлы используют паттерн **layered override**: каждый следующий файл расширяет предыдущий. `compose.monitoring.yml` и `compose.debug.yml` не предназначены для отдельного запуска.
 
-### Доступ
+## CI/CD
 
-| Сервис     | URL                                            |
-| ---------- | ---------------------------------------------- |
-| Приложение | `http://<SERVER_HOST>/`                        |
-| Grafana    | `http://<SERVER_HOST>/grafana`                 |
-| Prometheus | `http://<SERVER_HOST>/prometheus` (basic auth) |
+**ci-validate.yml** — запускается на каждый PR и push в master:
 
-```bash
-# Debug-режим — запуск с Adminer (веб-интерфейс для PostgreSQL)
-docker compose --profile debug up -d
-# Adminer доступен через SSH-туннель: ssh -L 8080:localhost:8080 user@server
-```
+- валидирует все три compose-файла (config --quiet)
+- проверяет prometheus.yml и alertmanager.yml (--config.check)
+- проверяет nginx.conf (nginx -t)
 
----
+**deploy.yml** — запускается при push в master:
 
-## 🔧 Настройка под себя
+- повторяет все проверки из ci-validate
+- деплоит по SSH: git pull → запись секретов → docker compose up → health check → Telegram-уведомление
 
-| Что              | Где                             | Описание                                     |
-| ---------------- | ------------------------------- | -------------------------------------------- |
-| Пороги алертов   | `prometheus/alerts.yml`         | warning >80%, critical >95% для CPU/RAM/Disk |
-| Retention метрик | `prometheus/prometheus.yml`     | По умолчанию 15 дней                         |
-| Интервал сбора   | `prometheus/prometheus.yml`     | По умолчанию каждые 30s                      |
-| Порты сервисов   | `.env`                          | Изменить если порты заняты                   |
-| Telegram         | `secrets/telegram_*`            | Токен бота и Chat ID                         |
-| Повтор алертов   | `alertmanager/alertmanager.yml` | critical: 1h, monitoring: 30m, default: 4h   |
+### GitHub Secrets для деплоя
 
----
+SSH_HOST · SSH_USER · SSH_PRIVATE_KEY · POSTGRES_USER · POSTGRES_DB · POSTGRES_PASSWORD · GRAFANA_ADMIN_USER · GRAFANA_ADMIN_PASSWORD · TELEGRAM_BOT_TOKEN · TELEGRAM_CHAT_ID
 
-## 🏗️ Архитектура
+## Структура проекта
 
 ```
-Интернет
-    │
-    ▼
- :80 (единственный открытый порт)
-    │
-  Nginx — reverse proxy
-    ├── /              → статика
-    ├── /grafana/      → grafana:3000     (авторизация Grafana)
-    └── /prometheus/   → prometheus:9090  (basic auth)
-
-Изолированы от интернета (internal: true):
-    prometheus, grafana, node-exporter, cadvisor, alertmanager*, postgres
-
-* alertmanager имеет исходящий доступ в интернет для отправки в Telegram
-```
-
-**Сетевая сегментация:**
-
-```
-frontend  — nginx, alertmanager          (есть выход в интернет)
-backend   — postgres                     (internal: true, изолирован)
-monitoring — все сервисы мониторинга     (internal: true, изолирован)
-```
-
-**DNS внутри Docker:** nginx использует `resolver 127.0.0.11` — резолвинг имён контейнеров происходит в момент запроса, а не при старте. Это позволяет nginx стартовать независимо от порядка запуска сервисов.
-
----
-
-## ⚙️ CI/CD Pipeline
-
-При пуше в ветку `master` автоматически запускается GitHub Actions:
-
-1. **Validate** — проверка синтаксиса `docker-compose.yml` с заглушками
-2. **Deploy via SSH** — деплой на сервер:
-   - `git pull` → запись секретов из GitHub Secrets → генерация `.env`
-   - `docker compose pull` → `docker compose up -d --remove-orphans`
-   - Ожидание 60s → проверка healthchecks → `docker image prune`
-
-Секреты передаются как переменные окружения SSH-сессии — не попадают в логи Actions.
-
-<details>
-<summary>Необходимые GitHub Secrets</summary>
-
-| Secret                   | Описание                      |
-| ------------------------ | ----------------------------- |
-| `SSH_HOST`               | IP сервера                    |
-| `SSH_USER`               | Пользователь SSH (не root)    |
-| `SSH_PRIVATE_KEY`        | Приватный SSH-ключ            |
-| `POSTGRES_USER`          | Имя пользователя PostgreSQL   |
-| `POSTGRES_DB`            | Имя базы данных               |
-| `POSTGRES_PASSWORD`      | Пароль PostgreSQL             |
-| `GRAFANA_ADMIN_USER`     | Логин администратора Grafana  |
-| `GRAFANA_ADMIN_PASSWORD` | Пароль администратора Grafana |
-| `TELEGRAM_BOT_TOKEN`     | Токен Telegram-бота           |
-| `TELEGRAM_CHAT_ID`       | ID чата для алертов           |
-
-> После деплоя не забудь вручную создать `secrets/nginx_htpasswd` на сервере (см. Шаг 3).
-
-</details>
-
----
-
-## 📊 Мониторинг и Alerting
-
-**Сбор метрик:** Node Exporter (хост) + cAdvisor (контейнеры), scrape каждые 30s
-
-**Alert rules — 15 правил в 3 группах:**
-
-| Группа             | Алерты                                                                                                     |
-| ------------------ | ---------------------------------------------------------------------------------------------------------- |
-| `node_alerts`      | HighCPU/Critical (>80/95%), HighMemory/Critical, HighDisk/Critical (>80/95%), HighSystemLoad               |
-| `container_alerts` | ContainerHighCPU, ContainerHighMemory, ContainerRestarted, ContainerCrashLoop, ContainerDown, CAdvisorDown |
-| `service_alerts`   | ServiceDown (все Prometheus targets)                                                                       |
-
-**Alertmanager:**
-
-- Маршрутизация по `severity` + `component`
-- Inhibit rules — critical подавляет warning для того же компонента
-- Telegram-уведомления с именем контейнера, хостом и временем события
-- Мгновенные алерты для `component: monitoring`, повтор каждые 30 минут
-
-**Grafana** — дашборды подключаются автоматически через provisioning при старте:
-
-- Node Exporter Full (метрики хоста)
-- cAdvisor (метрики контейнеров)
-
----
-
-## 🔐 Безопасность
-
-- Секреты в `secrets/` — не в Git, папка закрыта `chmod 700`
-- Файлы секретов монтируются в контейнеры через volumes (`chmod 644`) — Docker Compose не поддерживает `uid/gid/mode` для secrets (только Docker Swarm)
-- `no-new-privileges: true` + `cap_drop: ALL` + минимальный `cap_add` для всех сервисов
-- `read_only: true` + `tmpfs` для временных файлов
-- `internal: true` для сетей backend и monitoring
-- Единственная точка входа — Nginx на порту 80
-- basic auth на `/prometheus/` — Prometheus не имеет встроенной аутентификации
-- Grafana — собственная аутентификация, проверка обновлений отключена
-- Resource reservations на все контейнеры
-
-> ⚠️ Текущая версия использует HTTP. Для production с реальными данными рекомендуется добавить домен и HTTPS.
-
----
-
-## 🛠️ Troubleshooting
-
-**Grafana недоступна (`502 Bad Gateway`)**
-
-```bash
-# Убедиться, что контейнер grafana запущен
-docker compose ps | grep grafana
-# Если отсутствует — запусти
-docker compose up -d grafana
-```
-
-**Prometheus: ошибка 500 при входе**
-
-```bash
-# Проверить, что nginx применил актуальный конфиг
-docker exec webapp_nginx nginx -T | grep "location /prometheus"
-# Проверить, логи nginx
-docker exec webapp_nginx cat /var/log/nginx/error.log
-```
-
-**Алерты не приходят в Telegram**
-
-```bash
-# Проверить, что файлы читаемы изнутри контейнера
-docker exec webapp_alertmanager cat /run/secrets/telegram_token
-docker compose logs alertmanager | grep -i "error\|permission"
-```
-
-**Grafana: метрики не отображаются (`Status: 500`)**
-
-```bash
-# Проверить, datasource — URL должен быть с /prometheus
-cat grafana/provisioning/datasources/*.yml | grep url
-# Должно быть: url: http://prometheus:9090/prometheus
-
-# Проверить, targets в Prometheus
-# http://<SERVER_HOST>/prometheus/targets — все должны быть UP
-```
-
-**Контейнер в статусе `unhealthy`**
-
-```bash
-docker inspect <container_name> --format='{{json .State.Health}}' | jq
-docker compose logs <service_name> --tail=30
-```
-
-**Доступ к внутренним сервисам (Alertmanager, Adminer) через SSH-туннель**
-
-```bash
-ssh -L 9093:localhost:9093 -L 8080:localhost:8080 user@your_server
-# Затем в браузере: http://localhost:9093 (Alertmanager)
-```
-
----
-
-## 📁 Структура проекта
-
-```
-├── .github/workflows/deploy.yml      # CI/CD pipeline
+web-app/
+├── .github/workflows/
+│   ├── ci-validate.yml       # Валидация конфигов на PR
+│   └── deploy.yml            # Деплой на сервер
 ├── alertmanager/
-│   └── alertmanager.yml              # Маршрутизация алертов, Telegram
+│   └── alertmanager.yml
 ├── grafana/
-│   ├── dashboards/
-│   │   ├── cadvisor.json             # Dashboard контейнеров
-│   │   └── node-exporter.json        # Dashboard хоста
-│   └── provisioning/                 # Автонастройка при старте контейнера
-│       ├── dashboards/
-│       └── datasources/
+│   ├── dashboards/           # cadvisor.json, node-exporter.json
+│   └── provisioning/         # datasources, dashboards, alerting
 ├── nginx/
 │   ├── html/index.html
-│   └── nginx.conf                    # Reverse proxy: /grafana, /prometheus
-├── postgres/init/                    # Инициализация БД
+│   └── nginx.conf
 ├── prometheus/
-│   ├── prometheus.yml                # Scrape configs
-│   └── alerts.yml                    # 15 alert rules
-├── secrets/                          # Runtime-секреты (не в Git)
-├── secrets.example/                  # Шаблоны для onboarding
-├── .env.example                      # Все переменные с описанием
-├── .gitignore
-├── setup.sh                          # Скрипт первого запуска
-└── docker-compose.yml                # 8 сервисов, YAML anchors, 3 сети, 4 volume
+│   ├── alerts/
+│   │   ├── container.yml     # CrashLoop, ContainerDown, cAdvisor
+│   │   ├── host.yml          # CPU, RAM, Disk
+│   │   └── service.yml       # ServiceDown
+│   └── prometheus.yml
+├── secrets.example/          # Структура секретов (пустые файлы)
+├── .env.example
+├── compose.yml               # Core: nginx
+├── compose.monitoring.yml    # Overlay: observability стек
+└── compose.debug.yml         # Overlay: PostgreSQL, Adminer
 ```
 
+## Важные технические детали
+
+**cAdvisor и Docker Compose labels**  
+Используется ghcr.io/google/cadvisor:v0.56.2 с флагом --store_container_labels=true.  
+Без этого флага cAdvisor не передаёт Docker Compose labels в Prometheus — алерты по container_label_com_docker_compose_service не работают. Флаг уже включён в compose.monitoring.yml.  
+Версии cAdvisor ниже v0.51 несовместимы с ядром Linux 6.x (Ubuntu 24.04).
+
+**Alertmanager и sub-path routing**  
+При --web.route-prefix=/alertmanager/ необходимо указать в prometheus.yml:
+
+- path_prefix: /alertmanager/ в секции alertmanagers
+- metrics_path: /alertmanager/metrics для scrape job alertmanager
+
+Без path_prefix Prometheus отправляет алерты на /api/v2/alerts, а alertmanager слушает на /alertmanager/api/v2/alerts — алерты теряются без ошибок.
+
+**Alertmanager и egress из internal-сети**  
+internal: true в Docker блокирует весь исходящий трафик, включая TCP — не только DNS. Добавление dns: не решает проблему. Решение: добавить alertmanager в public-сеть. Без опубликованных портов это безопасно.
+
+```
+
+**Prometheus не видит alertmanager как target**
+Проверьте path_prefix: /alertmanager/ и metrics_path: /alertmanager/metrics в prometheus.yml.
+
+## Roadmap
+
+- [ ] HTTPS через Let's Encrypt
+- [ ] Terraform для provisioning VPS
+- [ ] Ansible для настройки сервера с нуля
+- [ ] Миграция на Kubernetes + Helm
+
 ---
-
-## 🎯 Roadmap
-
-- **v2.1** — Loki + Promtail (централизованные логи)
-- **v3.0** — HTTPS + Let's Encrypt (требует домен)
-- **v4.0** — Terraform + Ansible (IaC)
-- **v5.0** — Kubernetes + Helm + ArgoCD
-
----
+```

@@ -1,0 +1,61 @@
+# compose.yaml — Базовая конфигурация проекта
+# Запуск: docker compose up -d
+# Документация: https://docs.docker.com/compose/compose-file/
+
+services:
+  # NGINX (Reverse Proxy)
+  nginx:
+    image: nginx:1.25-alpine
+    container_name: ${COMPOSE_PROJECT_NAME:-webapp}_nginx
+    ports:
+      - "${NGINX_HTTP_PORT:-80}:80"
+    volumes:
+      - ./nginx/html:/usr/share/nginx/html:ro
+      - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./secrets/nginx_htpasswd:/etc/nginx/.htpasswd:ro
+    networks:
+      - public
+      - internal
+    restart: unless-stopped
+    read_only: true
+    tmpfs:
+      - /tmp
+      - /var/run
+      - /var/log/nginx
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    cap_add:
+      - NET_BIND_SERVICE
+      - CHOWN
+      - SETUID
+      - SETGID
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q -O /dev/null http://127.0.0.1/ || exit 1"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+    deploy:
+      resources:
+        reservations:
+          cpus: "0.05"
+          memory: 32M
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+networks:
+  public:
+    driver: bridge
+    # Единственная сеть с выходом в интернет
+    # Через неё nginx принимает входящий трафик
+
+  internal:
+    driver: bridge
+    internal: true
+    # Изолированная сеть для всех внутренних сервисов
+    # Нет доступа в интернет, только межсервисное общение
