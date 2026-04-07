@@ -52,7 +52,7 @@ jobs:
             --entrypoint /bin/amtool \
             -v "${{ github.workspace }}/alertmanager:/etc/alertmanager:ro" \
             prom/alertmanager:v0.31.0 \
-            check config /etc/alertmanager/alertmanager.yml
+            check-config /etc/alertmanager/alertmanager.yml
 
       - name: Validate Nginx config
         run: |
