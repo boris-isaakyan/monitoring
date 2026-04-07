@@ -12,8 +12,8 @@ services:
       - "--storage.tsdb.path=/prometheus"
       - "--storage.tsdb.retention.time=15d"
       - "--web.enable-lifecycle"
-      - "--web.external-url=/prometheus/"
-      - "--web.route-prefix=/prometheus/"
+      - "--web.external-url=http://${SERVER_HOST:-localhost}/prometheus"
+      - "--web.route-prefix=/prometheus"
     volumes:
       - ./prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
       - ./prometheus/alerts:/etc/prometheus/alerts:ro
@@ -220,8 +220,8 @@ services:
       - "--config.file=/etc/alertmanager/alertmanager.yml"
       - "--storage.path=/alertmanager"
       - "--cluster.listen-address="
-      - "--web.external-url=http://${SERVER_HOST:-localhost}/alertmanager/"
-      - "--web.route-prefix=/alertmanager/"
+      - "--web.external-url=http://${SERVER_HOST:-localhost}/alertmanager"
+      - "--web.route-prefix=/alertmanager"
     volumes:
       - ./alertmanager/alertmanager.yml:/etc/alertmanager/alertmanager.yml:ro
       - alertmanager-data:/alertmanager
