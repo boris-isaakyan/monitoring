@@ -1,0 +1,65 @@
+# container.yml — Алерты для Docker-контейнеров (cAdvisor)
+
+groups:
+  - name: container_alerts
+    interval: 15s
+    rules:
+      - alert: ContainerHighCPU
+        expr: (sum by(name) (rate(container_cpu_usage_seconds_total{name!=""}[5m])) / sum by(name) (container_spec_cpu_quota{name!=""} / container_spec_cpu_period{name!=""})) * 100 > 80
+        for: 5m
+        labels:
+          severity: warning
+          component: container
+        annotations:
+          summary: "Высокое потребление CPU контейнером {{ $labels.name }}"
+          description: 'Контейнер использует > 80% от его CPU-лимита. Значение: {{ $value | printf "%.1f" }}%'
+
+      - alert: ContainerHighMemory
+        expr: (container_memory_usage_bytes{name!=""} / container_spec_memory_limit_bytes{name!=""}) * 100 > 80 and container_spec_memory_limit_bytes{name!=""} > 0
+        for: 30s
+        labels:
+          severity: warning
+          component: container
+        annotations:
+          summary: "Контейнер {{ $labels.name }} высокое потребление памяти"
+          description: 'Использование памяти: {{ $value | printf "%.2f" }}% от лимита'
+
+      - alert: ContainerRestarted
+        expr: changes(container_start_time_seconds{container_label_com_docker_compose_service!=""}[1m]) > 0
+        for: 2m
+        labels:
+          severity: warning
+          component: container
+        annotations:
+          summary: "Контейнер {{ $labels.container_label_com_docker_compose_service }} перезапущен"
+          description: "Зафиксирован новый запуск процесса в контейнере за последнюю минуту."
+
+      - alert: ContainerCrashLoop
+        expr: changes(container_start_time_seconds{container_label_com_docker_compose_service!=""}[15m]) >= 3
+        for: 0s
+        labels:
+          severity: critical
+          component: container
+        annotations:
+          summary: "Контейнер {{ $labels.container_label_com_docker_compose_service }} в crash loop"
+          description: 'Контейнер перезапускался {{ $value | printf "%.0f" }} раз за последние 15 минут'
+
+      - alert: ContainerDown
+        expr: time() - container_last_seen{container_label_com_docker_compose_service!=""} > 30
+        for: 10s
+        labels:
+          severity: critical
+          component: container
+        annotations:
+          summary: "Контейнер {{ $labels.container_label_com_docker_compose_service }} недоступен"
+          description: "cAdvisor не видит контейнер более 30 секунд."
+
+      - alert: CAdvisorDown
+        expr: up{job="cadvisor"} == 0
+        for: 1m
+        labels:
+          severity: critical
+          component: monitoring
+        annotations:
+          summary: "cAdvisor недоступен"
+          description: "Prometheus не получает метрики контейнеров более 1 минуты"
