@@ -38,23 +38,26 @@ jobs:
       - name: Validate compose.debug.yml
         run: docker compose -f compose.yml -f compose.debug.yml config --quiet
 
-      - name: Validate Prometheus config
+      - name: Validate Prometheus config with promtool
         run: |
           docker run --rm \
-            --entrypoint promtool \
-            -v $(pwd)/prometheus:/etc/prometheus \
+            --entrypoint /bin/promtool \
+            -v "${{ github.workspace }}/prometheus:/etc/prometheus:ro" \
             prom/prometheus:v2.45.0 \
             check config /etc/prometheus/prometheus.yml
 
-      - name: Validate Alertmanager config
+      - name: Validate Alertmanager config with amtool
         run: |
           docker run --rm \
-            -v $(pwd)/alertmanager:/etc/alertmanager \
+            --entrypoint /bin/amtool \
+            -v "${{ github.workspace }}/alertmanager:/etc/alertmanager:ro" \
             prom/alertmanager:v0.31.0 \
-            --config.file=/etc/alertmanager/alertmanager.yml --config.check
+            check config /etc/alertmanager/alertmanager.yml
 
       - name: Validate Nginx config
         run: |
           docker run --rm \
-            -v $(pwd)/nginx/nginx.conf:/etc/nginx/nginx.conf:ro \
-            nginx:1.25-alpine nginx -t
+            -v "${{ github.workspace }}/nginx/nginx.conf:/etc/nginx/nginx.conf:ro" \
+            -v "${{ github.workspace }}/nginx/html:/usr/share/nginx/html:ro" \
+            nginx:1.25-alpine \
+            nginx -t
