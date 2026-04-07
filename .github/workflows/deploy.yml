@@ -73,7 +73,7 @@ jobs:
             -v "${{ github.workspace }}/prometheus:/etc/prometheus:ro" \
             prom/prometheus:v2.45.0 \
             check config /etc/prometheus/prometheus.yml
-          echo "✅ Prometheus config валиден
+          echo "✅ Prometheus config валиден"
 
       - name: Validate Alertmanager config with amtool
         run: |
