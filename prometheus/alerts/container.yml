@@ -46,7 +46,7 @@ groups:
 
       - alert: ContainerDown
         expr: time() - container_last_seen{container_label_com_docker_compose_service!=""} > 30
-        for: 10s
+        for: 3m
         labels:
           severity: critical
           component: container
