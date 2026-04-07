@@ -1,10 +1,13 @@
 apiVersion: 1
 
 providers:
-  - name: 'default'
-    folder: Metrics
+  - name: "Default"
+    orgId: 1
+    folder: ""
+    folderUid: ""
     type: file
-    disableDeletion: true        # нельзя удалить дашборд через UI
-    updateIntervalSeconds: 30    # проверять обновления каждые 30 секунд
+    disableDeletion: false
+    updateIntervalSeconds: 30
+    allowUiUpdates: true
     options:
       path: /etc/grafana/dashboards

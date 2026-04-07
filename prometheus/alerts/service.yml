@@ -1,0 +1,15 @@
+# service.yml — Алерты для сервисов (Prometheus targets)
+
+groups:
+  - name: service_alerts
+    interval: 15s
+    rules:
+      - alert: ServiceDown
+        expr: up == 0
+        for: 15s
+        labels:
+          severity: critical
+          component: service
+        annotations:
+          summary: "Сервис {{ $labels.job }} недоступен"
+          description: "Target {{ $labels.instance }} не отвечает"
