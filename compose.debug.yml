@@ -53,10 +53,10 @@ services:
     networks:
       - internal
     restart: unless-stopped
-    user: "82:82"
     read_only: true
     tmpfs:
       - /tmp
+      - /var/www/html
     security_opt:
       - no-new-privileges:true
     cap_drop:
