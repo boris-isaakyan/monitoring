@@ -1,8 +1,6 @@
-# Этот файл используется для деплоя на личный сервер.
-# Контрибьюторам НЕ нужно настраивать этот pipeline.
-#
+# Этот файл используется для деплоя на сервер.
 # Для локальной разработки используйте:
-#   docker compose -f compose.yml -f compose.monitoring.yml up -d
+# docker compose -f compose.yml -f compose.monitoring.yml up -d
 
 name: Deploy to Production
 
@@ -15,6 +13,7 @@ on:
 # Переменные окружения (доступны во всех шагах)
 env:
   DEPLOY_PATH: /home/${{ secrets.SSH_USER }}/web-app
+  DEPLOY_COMMIT: ${{ github.sha }}
 
 jobs:
   deploy:
@@ -31,7 +30,7 @@ jobs:
       # Шаг 2: Валидация Compose конфигов
       - name: Validate compose.yml
         run: |
-          # Создаём временный .env для валидации
+          # Создается временный .env для валидации
           cat > .env << 'EOF'
           COMPOSE_PROJECT_NAME=webapp
           SERVER_HOST=localhost
@@ -45,13 +44,13 @@ jobs:
           CADVISOR_PORT=8081
           ADMINER_PORT=8080
           EOF
-          # Создаём заглушки секретов (только для проверки синтаксиса)
+          # Заглушки секретов (только для проверки синтаксиса)
           mkdir -p secrets
           for f in postgres_password grafana_admin_password telegram_token telegram_chat_id nginx_htpasswd; do
             echo "dummy" > secrets/$f
           done
 
-          # Валидируем базовую конфигурацию
+          # Валидация базовой конфигурации
           docker compose -f compose.yml config --quiet
           echo "✅ compose.yml валиден"
 
@@ -73,7 +72,7 @@ jobs:
             -v "${{ github.workspace }}/prometheus:/etc/prometheus:ro" \
             prom/prometheus:v2.45.0 \
             check config /etc/prometheus/prometheus.yml
-          echo "✅ Prometheus config валиден"
+          echo "Prometheus config валиден"
 
       - name: Validate Alertmanager config with amtool
         run: |
@@ -82,7 +81,7 @@ jobs:
             -v "${{ github.workspace }}/alertmanager:/etc/alertmanager:ro" \
             prom/alertmanager:v0.31.0 \
             check-config /etc/alertmanager/alertmanager.yml
-          echo "✅ Alertmanager config валиден"
+          echo "Alertmanager config валиден"
 
       # Шаг 4: Валидация Nginx конфига
       - name: Validate Nginx configuration
@@ -92,54 +91,67 @@ jobs:
             -v "${{ github.workspace }}/nginx/html:/usr/share/nginx/html:ro" \
             nginx:1.25-alpine \
             nginx -t
-          echo "✅ Nginx config валиден"
+          echo "Nginx config валиден"
 
       # Шаг 5: Деплой на сервер через SSH
       - name: Deploy via SSH
         uses: appleboy/ssh-action@v1.0.3
+
+        # Маппинг GitHub Secrets → переменные окружения SSH-сессии
+        env:
+          DEPLOY_POSTGRES_USER: ${{ secrets.POSTGRES_USER }}
+          DEPLOY_POSTGRES_DB: ${{ secrets.POSTGRES_DB }}
+          DEPLOY_POSTGRES_PASSWORD: ${{ secrets.POSTGRES_PASSWORD }}
+          DEPLOY_GRAFANA_USER: ${{ secrets.GRAFANA_ADMIN_USER }}
+          DEPLOY_GRAFANA_PASSWORD: ${{ secrets.GRAFANA_ADMIN_PASSWORD }}
+          DEPLOY_TELEGRAM_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          DEPLOY_TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+          DEPLOY_BASIC_AUTH_USER: ${{ secrets.BASIC_AUTH_USER }}
+          DEPLOY_BASIC_AUTH_PASS: ${{ secrets.BASIC_AUTH_PASS }}
+          DEPLOY_COMMIT: ${{ github.sha }}
+
         with:
           host: ${{ secrets.SSH_HOST }}
           username: ${{ secrets.SSH_USER }}
           key: ${{ secrets.SSH_PRIVATE_KEY }}
-          # Передаём секреты как переменные окружения SSH-сессии
+          # Секреты передаются как переменные окружения SSH-сессии
           # Значения не попадают в логи GitHub Actions
-          envs: DEPLOY_POSTGRES_USER,DEPLOY_POSTGRES_DB,DEPLOY_POSTGRES_PASSWORD,DEPLOY_GRAFANA_USER,DEPLOY_GRAFANA_PASSWORD,DEPLOY_TELEGRAM_TOKEN,DEPLOY_TELEGRAM_CHAT_ID
+          envs: DEPLOY_POSTGRES_USER,DEPLOY_POSTGRES_DB,DEPLOY_POSTGRES_PASSWORD,DEPLOY_GRAFANA_USER,DEPLOY_GRAFANA_PASSWORD,DEPLOY_TELEGRAM_TOKEN,DEPLOY_TELEGRAM_CHAT_ID,DEPLOY_BASIC_AUTH_USER,DEPLOY_BASIC_AUTH_PASS,DEPLOY_COMMIT
+
           script: |
             # Строгий режим: остановка при ошибке, проверка переменных
             set -euo pipefail
 
-            echo "🚀 Деплой начат: $(date '+%Y-%m-%d %H:%M:%S')"
-            echo "📦 Commit: $(git -C ${{ env.DEPLOY_PATH }} rev-parse --short HEAD 2>/dev/null || echo 'new')"
+            echo "Деплой начат: $(date '+%Y-%m-%d %H:%M:%S')"
 
-            # Переходим в папку проекта
+            # Переход в папку проекта
             cd ${{ env.DEPLOY_PATH }}
 
-            # Получаем свежий код
+            # Получение нового кода
             git fetch origin master
             git reset --hard origin/master
             echo "✅ Код синхронизирован с origin/master: $(git rev-parse --short HEAD)"
 
-            # Создаём папку для секретов
+            # Создание папку для секретов
             mkdir -p secrets
             chmod 700 secrets
 
-            # Записываем секреты (printf без newline в конце)
+            # Запись секретов (printf без newline в конце)
             printf '%s' "$DEPLOY_POSTGRES_PASSWORD" > secrets/postgres_password
             printf '%s' "$DEPLOY_GRAFANA_PASSWORD"  > secrets/grafana_admin_password
             printf '%s' "$DEPLOY_TELEGRAM_TOKEN"    > secrets/telegram_token
             printf '%s' "$DEPLOY_TELEGRAM_CHAT_ID"  > secrets/telegram_chat_id
 
-            # Генерируем htpasswd (всегда перегенерируем при деплое)
+            # Генерация htpasswd
             docker run --rm httpd:alpine \
-              htpasswd -nbB "$DEPLOY_GRAFANA_USER" "$DEPLOY_GRAFANA_PASSWORD" \
+              htpasswd -nbB "$DEPLOY_BASIC_AUTH_USER" "$DEPLOY_BASIC_AUTH_PASS" \
               > secrets/nginx_htpasswd
-            echo "✅ nginx_htpasswd обновлён"
 
             # Права 644 — только владелец читает
             chmod 644 secrets/*
             echo "✅ Секреты обновлены"
 
-            # Создаём .env (перезаписываем полностью для актуальности)
+            # Создание .env (перезаписываются полностью для актуальности)
             cat > .env << EOF
             COMPOSE_PROJECT_NAME=webapp
             SERVER_HOST=${{ secrets.SSH_HOST }}
@@ -154,54 +166,96 @@ jobs:
             ADMINER_PORT=8080
             EOF
             chmod 644 .env  # .env не содержит паролей, но ограничиваем запись
-            echo "✅ .env обновлён"
+            echo ".env обновлён"
 
-            # Скачиваем обновлённые образы
+            # Скачивание образов и запуск контейнеров
             docker compose -f compose.yml -f compose.monitoring.yml pull
-            echo "✅ Образы обновлены"
-
-            # Запускаем контейнеры (только core + monitoring, без debug)
             docker compose -f compose.yml -f compose.monitoring.yml up -d --remove-orphans
-            echo "✅ Контейнеры запущены"
+            echo "Образы скачены, контейнеры запущены"
 
-            # Ждём готовности сервисов (перекрывает start_period)
-            echo "⏳ Жду готовности сервисов (60 сек)..."
+            # Ожидание готовности сервисов (перекрывает start_period)
+            echo "⏳ Ожидание готовности сервисов (60 сек)..."
             sleep 60
 
-            # Проверяем статус контейнеров
+            # Проверка статуса контейнеров
             if docker compose -f compose.yml -f compose.monitoring.yml ps | grep -q "unhealthy"; then
-              echo "❌ Есть проблемные контейнеры:"
+              echo "❌ unhealthy containers"
               docker compose -f compose.yml -f compose.monitoring.yml ps
               exit 1
             fi
 
-            echo "✅ Все сервисы работают"
-            docker compose -f compose.yml -f compose.monitoring.yml ps
+            echo "services OK"
 
-            # Очищаем dangling образы
+            # Smoke тест
+            wait_for_url() {
+              local url="$1" 
+              local ok_codes="$2"
+
+              for i in {1..30}; do
+                code=$(curl -s -o /dev/null -w "%{http_code}" "$url")
+                
+                if [[ " $ok_codes " == *" $code "* ]]; then
+                  echo "✅ $url - $code"
+                  return 0
+                fi
+
+                if [[ "$code" =~ ^(000|502|503|504)$ ]]; then
+                  sleep 2
+                  continue
+                fi
+
+                echo "❌ $url - $code"
+                return 1
+              done
+
+                echo "❌ timeout $url"
+                return 1
+              }
+
+              wait_for_url_auth() {
+                local url="$1" 
+                local ok_codes="$2"
+
+                for i in {1..30}; do
+                  code=$(curl -s -o /dev/null \
+                    -u "$DEPLOY_BASIC_AUTH_USER:$DEPLOY_BASIC_AUTH_PASS" \
+                    -w "%{http_code}" "$url")
+
+                if [[ " $ok_codes " == *" $code "* ]]; then
+                  echo "✅ $url - $code"
+                  return 0
+                fi
+
+                sleep 2
+              done
+
+              echo "❌ timeout $url"
+              return 1
+            }
+
+            wait_for_url "http://localhost/" "200" || exit 1
+            wait_for_url "http://localhost/grafana/" "200 301 302" || exit 1
+            wait_for_url "http://localhost/prometheus/" "401" || exit 1
+            wait_for_url "http://localhost/alertmanager/" "401" || exit 1
+            wait_for_url_auth "http://localhost/prometheus/-/healthy" "200" || exit 1
+            wait_for_url_auth "http://localhost/alertmanager/-/healthy" "200"
+
+            # Удаление dangling образов
             docker image prune -f
-            echo "✅ Устаревшие образы удалены"
+            echo "Устаревшие образы удалены"
 
-            # Отправляем уведомление в Telegram об успешном деплое
+            # Отправка уведомления в Telegram об успешном деплое
+            COMMIT_SHORT=${DEPLOY_COMMIT:-unknown}
+            COMMIT_SHORT=${COMMIT_SHORT:0:7}
+
             if [ -n "$DEPLOY_TELEGRAM_TOKEN" ] && [ -n "$DEPLOY_TELEGRAM_CHAT_ID" ]; then
               curl -s -X POST "https://api.telegram.org/bot${DEPLOY_TELEGRAM_TOKEN}/sendMessage" \
                 -d "chat_id=${DEPLOY_TELEGRAM_CHAT_ID}" \
-                -d "text=✅ Деплой успешен%0ACommit: $(git rev-parse --short HEAD)%0AВремя: $(date '+%Y-%m-%d %H:%M:%S')" \
+                -d "text=✅ Deploy successful%0ACommit: ${COMMIT_SHORT}%0ATime: $(date '+%Y-%m-%d %H:%M:%S')" \
                 > /dev/null || true
             fi
 
-            echo ""
-            echo "🎉 Деплой завершён: $(date '+%Y-%m-%d %H:%M:%S')"
-
-        # Маппинг GitHub Secrets → переменные окружения SSH-сессии
-        env:
-          DEPLOY_POSTGRES_USER: ${{ secrets.POSTGRES_USER }}
-          DEPLOY_POSTGRES_DB: ${{ secrets.POSTGRES_DB }}
-          DEPLOY_POSTGRES_PASSWORD: ${{ secrets.POSTGRES_PASSWORD }}
-          DEPLOY_GRAFANA_USER: ${{ secrets.GRAFANA_ADMIN_USER }}
-          DEPLOY_GRAFANA_PASSWORD: ${{ secrets.GRAFANA_ADMIN_PASSWORD }}
-          DEPLOY_TELEGRAM_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
-          DEPLOY_TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+            echo "✅ Деплой завершён: $(date '+%Y-%m-%d %H:%M:%S')"
 
       # Шаг 6: Уведомление о статусе деплоя
       - name: Notify deployment status
@@ -209,7 +263,7 @@ jobs:
         run: |
           echo "Статус деплоя: ${{ job.status }}"
           if [ "${{ job.status }}" == "success" ]; then
-            echo "🎉 Деплой успешен!"
+            echo "✅ Деплой успешен!"
           else
             echo "❌ Деплой провалился! Проверь логи."
           fi

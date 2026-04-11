@@ -17,6 +17,7 @@
 - **15+ alert rules** — CPU, RAM, Disk, CrashLoop, ServiceDown → Telegram
 - **Container hardening** — read_only, cap_drop: ALL, non-root users, secrets через файлы
 - **CI validation** — все конфиги проверяются на PR до попадания на сервер
+- **Smoke test** — трёхуровневая проверка доступности сервисов после каждого деплоя
 
 ## Требования
 
@@ -80,20 +81,22 @@ echo "your_postgres_password"   > secrets/postgres_password
 echo "your_grafana_password"    > secrets/grafana_admin_password
 echo "your_telegram_bot_token"  > secrets/telegram_token
 echo "your_telegram_chat_id"    > secrets/telegram_chat_id
-docker run --rm httpd:alpine htpasswd -nbB admin grafana_pass > secrets/nginx_htpasswd
-chmod 600 secrets/*
+
+# Basic Auth для Prometheus и Alertmanager
+docker run --rm httpd:alpine htpasswd -nbB admin your_basic_auth_pass > secrets/nginx_htpasswd
+chmod 644 secrets/*
 
 # 3. Запуск
 docker compose -f compose.yml -f compose.monitoring.yml up -d
 ```
 
-| Сервис          | URL                            |
-| --------------- | ------------------------------ |
-| Главная         | http://localhost               |
-| Grafana         | http://localhost/grafana/      |
-| Prometheus      | http://localhost/prometheus/   |
-| Alertmanager    | http://localhost/alertmanager/ |
-| Adminer (debug) | http://localhost:8080          |
+| Сервис          | URL                            | Доступ     |
+| --------------- | ------------------------------ | ---------- |
+| Главная         | http://localhost               | Открыт     |
+| Grafana         | http://localhost/grafana/      | Открыт     |
+| Prometheus      | http://localhost/prometheus/   | Basic Auth |
+| Alertmanager    | http://localhost/alertmanager/ | Basic Auth |
+| Adminer (debug) | http://localhost:8080          | Открыт     |
 
 ## Compose-профили
 
@@ -121,11 +124,44 @@ docker compose -f compose.yml up -d
 **deploy.yml** — запускается при push в master:
 
 - повторяет все проверки из ci-validate
-- деплоит по SSH: git pull → запись секретов → docker compose up → health check → Telegram-уведомление
+- деплоит по SSH: git pull → запись секретов → генерация htpasswd → docker compose up
+- проверяет healthcheck всех контейнеров
+- выполняет трёхуровневый smoke test
+- отправляет Telegram-уведомление с номером коммита
+
+### Smoke test
+
+После деплоя pipeline автоматически проверяет доступность всех эндпоинтов.  
+Каждая проверка делает до 30 попыток с интервалом 2 секунды — это покрывает время старта сервисов.  
+При получении 5xx деплой немедленно останавливается.
+
+| Уровень      | Эндпоинт                         | Ожидаемый код |
+| ------------ | -------------------------------- | ------------- |
+| Nginx / Web  | `/`                              | 200           |
+| Grafana      | `/grafana/`                      | 200, 301, 302 |
+| Auth layer   | `/prometheus/`, `/alertmanager/` | 401           |
+| Health check | `/prometheus/-/healthy`          | 200           |
+| Health check | `/alertmanager/-/healthy`        | 200           |
 
 ### GitHub Secrets для деплоя
 
-SSH_HOST · SSH_USER · SSH_PRIVATE_KEY · POSTGRES_USER · POSTGRES_DB · POSTGRES_PASSWORD · GRAFANA_ADMIN_USER · GRAFANA_ADMIN_PASSWORD · TELEGRAM_BOT_TOKEN · TELEGRAM_CHAT_ID
+| Secret                   | Назначение                                   |
+| ------------------------ | -------------------------------------------- |
+| `SSH_HOST`               | IP production-сервера                        |
+| `SSH_USER`               | SSH-пользователь                             |
+| `SSH_PRIVATE_KEY`        | Приватный SSH-ключ                           |
+| `POSTGRES_USER`          | Пользователь PostgreSQL                      |
+| `POSTGRES_DB`            | База данных PostgreSQL                       |
+| `POSTGRES_PASSWORD`      | Пароль PostgreSQL                            |
+| `GRAFANA_ADMIN_USER`     | Логин Grafana                                |
+| `GRAFANA_ADMIN_PASSWORD` | Пароль Grafana                               |
+| `BASIC_AUTH_USER`        | Логин Basic Auth (Prometheus, Alertmanager)  |
+| `BASIC_AUTH_PASS`        | Пароль Basic Auth (Prometheus, Alertmanager) |
+| `TELEGRAM_BOT_TOKEN`     | Токен Telegram-бота                          |
+| `TELEGRAM_CHAT_ID`       | ID чата для уведомлений                      |
+
+> Basic Auth для Prometheus и Alertmanager хранится отдельно от Grafana-credentials.  
+> Это позволяет менять пароли независимо и следует принципу разделения ответственности.
 
 ## Структура проекта
 
@@ -173,10 +209,14 @@ web-app/
 **Alertmanager и egress из internal-сети**  
 internal: true в Docker блокирует весь исходящий трафик, включая TCP — не только DNS. Добавление dns: не решает проблему. Решение: добавить alertmanager в public-сеть. Без опубликованных портов это безопасно.
 
-```
+**running ≠ healthy ≠ работает**  
+Контейнер в статусе running и healthy не гарантирует что сервис отвечает на запросы.  
+Smoke test проверяет реальную доступность через HTTP после каждого деплоя.
 
+```
 **Prometheus не видит alertmanager как target**
 Проверьте path_prefix: /alertmanager/ и metrics_path: /alertmanager/metrics в prometheus.yml.
+```
 
 ## Roadmap
 
@@ -186,4 +226,7 @@ internal: true в Docker блокирует весь исходящий траф
 - [ ] Миграция на Kubernetes + Helm
 
 ---
+
+```
+
 ```
