@@ -6,7 +6,7 @@ services:
   # POSTGRESQL (только для разработки)
   postgres:
     image: postgres:15-alpine
-    container_name: ${COMPOSE_PROJECT_NAME:-webapp}_db
+    container_name: ${COMPOSE_PROJECT_NAME:-monitoring}_db
     profiles:
       - debug
     environment:
@@ -42,7 +42,7 @@ services:
   # ADMINER (веб-интерфейс для БД)
   adminer:
     image: adminer:4.8.1
-    container_name: ${COMPOSE_PROJECT_NAME:-webapp}_adminer
+    container_name: ${COMPOSE_PROJECT_NAME:-monitoring}_adminer
     profiles:
       - debug
     ports:

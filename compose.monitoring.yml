@@ -6,7 +6,7 @@ services:
   # PROMETHEUS
   prometheus:
     image: prom/prometheus:v2.45.0
-    container_name: ${COMPOSE_PROJECT_NAME:-webapp}_prometheus
+    container_name: ${COMPOSE_PROJECT_NAME:-monitoring}_prometheus
     command:
       - "--config.file=/etc/prometheus/prometheus.yml"
       - "--storage.tsdb.path=/prometheus"
@@ -60,7 +60,7 @@ services:
   # GRAFANA
   grafana:
     image: grafana/grafana:10.2.2
-    container_name: ${COMPOSE_PROJECT_NAME:-webapp}_grafana
+    container_name: ${COMPOSE_PROJECT_NAME:-monitoring}_grafana
     environment:
       GF_SECURITY_ADMIN_USER: ${GRAFANA_ADMIN_USER}
       GF_SECURITY_ADMIN_PASSWORD_FILE: /run/secrets/grafana_admin_password
@@ -127,7 +127,7 @@ services:
   # NODE EXPORTER
   node-exporter:
     image: prom/node-exporter:v1.6.1
-    container_name: ${COMPOSE_PROJECT_NAME:-webapp}_node-exporter
+    container_name: ${COMPOSE_PROJECT_NAME:-monitoring}_node-exporter
     command:
       - "--path.rootfs=/host"
       - "--collector.filesystem.mount-points-exclude=^/(sys|proc|dev|host|etc)($$|/)"
@@ -177,7 +177,7 @@ services:
   # CADVISOR
   cadvisor:
     image: ghcr.io/google/cadvisor:0.56.2
-    container_name: ${COMPOSE_PROJECT_NAME:-webapp}_cadvisor
+    container_name: ${COMPOSE_PROJECT_NAME:-monitoring}_cadvisor
     privileged: true
     command:
       - "--docker_only"
@@ -215,7 +215,7 @@ services:
   # ALERTMANAGER
   alertmanager:
     image: prom/alertmanager:v0.31.0
-    container_name: ${COMPOSE_PROJECT_NAME:-webapp}_alertmanager
+    container_name: ${COMPOSE_PROJECT_NAME:-monitoring}_alertmanager
     command:
       - "--config.file=/etc/alertmanager/alertmanager.yml"
       - "--storage.path=/alertmanager"
