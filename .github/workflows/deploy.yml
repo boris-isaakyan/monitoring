@@ -12,7 +12,7 @@ on:
 
 # Переменные окружения (доступны во всех шагах)
 env:
-  DEPLOY_PATH: /home/${{ secrets.SSH_USER }}/web-app
+  DEPLOY_PATH: /home/${{ secrets.SSH_USER }}/monitoring
   DEPLOY_COMMIT: ${{ github.sha }}
 
 jobs:
@@ -32,7 +32,7 @@ jobs:
         run: |
           # Создается временный .env для валидации
           cat > .env << 'EOF'
-          COMPOSE_PROJECT_NAME=webapp
+          COMPOSE_PROJECT_NAME=monitoring
           SERVER_HOST=localhost
           NGINX_HTTP_PORT=80
           POSTGRES_USER=test
@@ -153,7 +153,7 @@ jobs:
 
             # Создание .env (перезаписываются полностью для актуальности)
             cat > .env << EOF
-            COMPOSE_PROJECT_NAME=webapp
+            COMPOSE_PROJECT_NAME=monitoring
             SERVER_HOST=${{ secrets.SSH_HOST }}
             NGINX_HTTP_PORT=80
             POSTGRES_USER=${DEPLOY_POSTGRES_USER}
