@@ -70,7 +70,7 @@ Alertmanager подключён к обеим сетям: internal для свя
 ## Быстрый старт
 
 ```bash
-git clone https://github.com/ivanserneev-max/web-app.git && cd web-app
+git clone https://github.com/ivanserneev-max/monitoring.git && cd monitoring
 
 # 1. Окружение
 cp .env.example .env
@@ -166,7 +166,7 @@ docker compose -f compose.yml up -d
 ## Структура проекта
 
 ```
-web-app/
+monitoring/
 ├── .github/workflows/
 │   ├── ci-validate.yml       # Валидация конфигов на PR
 │   └── deploy.yml            # Деплой на сервер
